@@ -68,8 +68,22 @@ def fetch_with_urllib3(url):
         logger.error(f"  ✗ urllib3 also failed: {e}")
         return f"urllib3 Error: {e}"
 
+def fetch_with_requests(url):
+    """Fetch URL using requests with proper SSL."""
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            logger.info(f"  ✓ SUCCESS with requests: {response.status_code}")
+            return "SUCCESS (requests)"
+        else:
+            logger.warning(f"  ! requests unexpected status: {response.status_code}")
+            return f"HTTP {response.status_code} (requests)"
+    except Exception as e:
+        logger.error(f"  ✗ requests failed: {e}")
+        return f"requests Error: {e}"
+
 def test_websites():
-    """Test connectivity using smart SSL approach."""
+    """Test connectivity using smart SSL approach with dual fallbacks."""
     test_urls = [
         "https://httpbin.org/get",
         "https://example.com", 
@@ -80,32 +94,46 @@ def test_websites():
     results = {}
     
     for url in test_urls:
-        # For known problematic sites, go straight to urllib3
         if is_problematic_site(url):
+            # Known problematic sites: try urllib3 first, fallback to requests
             logger.info(f"Testing (known problematic): {url}")
-            results[url] = fetch_with_urllib3(url)
-            continue
-        
-        # For normal sites, try requests first
-        try:
-            logger.info(f"Testing: {url}")
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                logger.info(f"  ✓ SUCCESS: {response.status_code}")
-                results[url] = "SUCCESS"
+            result = fetch_with_urllib3(url)
+            
+            if "SUCCESS" not in result:
+                logger.info(f"  urllib3 failed, trying requests fallback...")
+                fallback_result = fetch_with_requests(url)
+                if "SUCCESS" in fallback_result:
+                    results[url] = fallback_result + " (after urllib3 failed)"
+                else:
+                    results[url] = f"{result} | {fallback_result}"
             else:
-                logger.warning(f"  ! Unexpected status: {response.status_code}")
-                results[url] = f"HTTP {response.status_code}"
-        except requests.exceptions.SSLError as e:
-            logger.warning(f"  ! SSL ERROR with requests: {e}")
-            # SSL error - try urllib3 fallback
-            results[url] = fetch_with_urllib3(url)
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"  ✗ CONNECTION ERROR: {e}")
-            results[url] = f"Connection Error: {e}"
-        except Exception as e:
-            logger.error(f"  ✗ ERROR: {e}")
-            results[url] = f"Error: {e}"
+                results[url] = result
+        else:
+            # Normal sites: try requests first, fallback to urllib3 on SSL errors
+            logger.info(f"Testing: {url}")
+            try:
+                response = requests.get(url, timeout=10)
+                if response.status_code == 200:
+                    logger.info(f"  ✓ SUCCESS: {response.status_code}")
+                    results[url] = "SUCCESS (requests)"
+                else:
+                    logger.warning(f"  ! Unexpected status: {response.status_code}")
+                    results[url] = f"HTTP {response.status_code} (requests)"
+            except requests.exceptions.SSLError as e:
+                logger.warning(f"  ! SSL ERROR with requests: {e}")
+                # SSL error - try urllib3 fallback
+                logger.info(f"  Trying urllib3 fallback...")
+                fallback_result = fetch_with_urllib3(url)
+                if "SUCCESS" in fallback_result:
+                    results[url] = fallback_result + " (after requests SSL error)"
+                else:
+                    results[url] = f"requests SSL Error | {fallback_result}"
+            except requests.exceptions.ConnectionError as e:
+                logger.error(f"  ✗ CONNECTION ERROR: {e}")
+                results[url] = f"Connection Error: {e}"
+            except Exception as e:
+                logger.error(f"  ✗ ERROR: {e}")
+                results[url] = f"Error: {e}"
     
     return results
 
