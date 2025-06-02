@@ -646,7 +646,7 @@
                 textEl.innerHTML = marked.parse(data.content || 'No content available');
                 
                 // Clear iframe when switching sources
-                iframeEl.src = '';
+                iframeEl.src = 'about:blank';
             } catch (error) {
                 console.error('Error loading source:', error);
                 textEl.innerHTML = `<p>Error loading source: ${error.message}</p>`;
@@ -672,9 +672,10 @@
                 textBtn.classList.remove('active');
                 previewBtn.classList.add('active');
                 
-                // Load iframe on first preview
+                // Load iframe on first preview using proxy
                 if (iframeEl.src === '' && currentSourceUrl) {
-                    iframeEl.src = currentSourceUrl;
+                    // Use proxy endpoint to handle SSL issues
+                    iframeEl.src = `/api/proxy/${encodeURIComponent(currentSourceUrl)}`;
                 }
             }
         }

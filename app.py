@@ -198,6 +198,108 @@ async def get_notes():
     }
 
 
+@app.get("/api/proxy/{url:path}")
+async def proxy_content(url: str):
+    """Proxy content through backend to handle SSL issues"""
+    agent = get_agent()
+    
+    logger.info(f"Proxying content for: {url}")
+    
+    try:
+        # Use the agent's fetch method which handles SSL properly
+        result = agent.fetch_page_content(url)
+        
+        if result['success']:
+            # Return the HTML content directly
+            content = result.get('content', '')
+            title = result.get('title', 'Proxied Content')
+            
+            # Create a simple HTML wrapper
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>{title}</title>
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 800px;
+                        margin: 0 auto;
+                        padding: 20px;
+                    }}
+                    pre {{
+                        background: #f4f4f4;
+                        padding: 10px;
+                        border-radius: 4px;
+                        overflow-x: auto;
+                    }}
+                </style>
+            </head>
+            <body>
+                <h1>{title}</h1>
+                <div>{content}</div>
+                <hr>
+                <p><small>Content fetched from: <a href="{url}" target="_blank">{url}</a></small></p>
+            </body>
+            </html>
+            """
+            
+            return HTMLResponse(content=html_content)
+        else:
+            # Return error page
+            error = result.get('error', 'Unknown error')
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Error Loading Content</title>
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        color: #e74c3c;
+                        padding: 20px;
+                    }}
+                </style>
+            </head>
+            <body>
+                <h1>Error Loading Content</h1>
+                <p>Failed to load content from: {url}</p>
+                <p>Error: {error}</p>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html_content, status_code=500)
+            
+    except Exception as e:
+        logger.error(f"Error proxying content: {e}")
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Proxy Error</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    color: #e74c3c;
+                    padding: 20px;
+                }}
+            </style>
+        </head>
+        <body>
+            <h1>Proxy Error</h1>
+            <p>An error occurred while fetching the content.</p>
+            <p>Error: {str(e)}</p>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content, status_code=500)
+
+
 # Get the directory where this script is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
