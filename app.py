@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import configuration
-from config import OAUTH_CONFIG, SSL_CERT_PATH, SERVER_HOST, SERVER_PORT
+from config import OAUTH_CONFIG, SSL_CERT_PATH, SERVER_HOST, SERVER_PORT, MODEL_NAME
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -34,13 +34,39 @@ agent = None
 def get_agent():
     global agent
     if agent is None:
-        agent = ResearchAgent(OAUTH_CONFIG, SSL_CERT_PATH)
+        try:
+            logger.info("Initializing ResearchAgent...")
+            agent = ResearchAgent(OAUTH_CONFIG, SSL_CERT_PATH)
+            logger.info("ResearchAgent initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize ResearchAgent: {e}")
+            raise
     return agent
 
 
 @app.get("/")
 async def root():
     return FileResponse(os.path.join(STATIC_DIR, 'index.html'))
+
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint to verify configuration"""
+    try:
+        agent = get_agent()
+        return {
+            "status": "healthy",
+            "model": MODEL_NAME,
+            "ssl_cert_exists": os.path.exists(SSL_CERT_PATH),
+            "config_loaded": True
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "model": MODEL_NAME,
+            "ssl_cert_exists": os.path.exists(SSL_CERT_PATH)
+        }
 
 
 @app.websocket("/ws")

@@ -41,30 +41,56 @@ class ResearchAgent:
         self.notes: List[ResearchNote] = []
         self.sources: Dict[str, Dict[str, Any]] = {}  # url -> {content, title, timestamp}
         self.client = None
+        
+        # Verify SSL cert exists
+        import os
+        if not os.path.exists(ssl_cert_path):
+            print(f"WARNING: SSL certificate not found at {ssl_cert_path}")
+        else:
+            print(f"SSL certificate found at {ssl_cert_path}")
+            
         self._init_client()
     
     def _init_client(self):
-        # Get OAuth token
-        token = self._get_oauth_token()
-        
-        # Initialize OpenAI client with Cohere
-        self.client = OpenAI(
-            api_key=token,
-            base_url=self.oauth_config['base_url']
-        )
+        try:
+            # Get OAuth token
+            token = self._get_oauth_token()
+            
+            # Initialize OpenAI client with Cohere
+            print(f"Initializing OpenAI client with base URL: {self.oauth_config['base_url']}")
+            self.client = OpenAI(
+                api_key=token,
+                base_url=self.oauth_config['base_url']
+            )
+            print("OpenAI client initialized successfully")
+        except Exception as e:
+            print(f"Failed to initialize client: {e}")
+            raise
     
     def _get_oauth_token(self) -> str:
-        response = requests.post(
-            self.oauth_config['oauth_url'],
-            data={
-                'grant_type': 'client_credentials',
-                'client_id': self.oauth_config['client_id'],
-                'client_secret': self.oauth_config['client_secret']
-            },
-            verify=self.ssl_cert_path
-        )
-        response.raise_for_status()
-        return response.json()['access_token']
+        try:
+            print(f"Attempting OAuth authentication to: {self.oauth_config['oauth_url']}")
+            response = requests.post(
+                self.oauth_config['oauth_url'],
+                data={
+                    'grant_type': 'client_credentials',
+                    'client_id': self.oauth_config['client_id'],
+                    'client_secret': self.oauth_config['client_secret']
+                },
+                verify=self.ssl_cert_path,
+                timeout=30
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            print("OAuth token obtained successfully")
+            return token_data['access_token']
+        except requests.exceptions.RequestException as e:
+            print(f"OAuth request failed: {e}")
+            raise
+        except KeyError as e:
+            print(f"OAuth response missing expected field: {e}")
+            print(f"Response: {response.text}")
+            raise
     
     def search_web(self, query: str) -> Dict[str, Any]:
         """Search the web and store results with sources"""
@@ -257,26 +283,31 @@ class ResearchAgent:
     
     def process_message(self, user_message: str) -> Dict[str, Any]:
         """Process a user message and return response with sources"""
-        messages = [
-            {
-                "role": "system",
-                "content": """You are a helpful research assistant. When answering questions:
+        try:
+            print(f"Processing message: {user_message[:50]}...")
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": """You are a helpful research assistant. When answering questions:
 1. Search for relevant information if needed
 2. Take notes on important findings with source URLs
 3. Provide comprehensive answers with citations
 4. Format citations as [1], [2], etc. in your response
 5. Always cite your sources when using web information"""
-            },
-            {"role": "user", "content": user_message}
-        ]
-        
-        # Create completion with tools
-        response = self.client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            tools=self.get_tools(),
-            tool_choice="auto"
-        )
+                },
+                {"role": "user", "content": user_message}
+            ]
+            
+            # Create completion with tools
+            print(f"Calling {MODEL_NAME} with tools...")
+            response = self.client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                tools=self.get_tools(),
+                tool_choice="auto"
+            )
+            print("Initial completion successful")
         
         # Process tool calls
         tool_calls = []
@@ -325,12 +356,17 @@ class ResearchAgent:
                     'title': self.sources.get(note.source_url, {}).get('title', note.title)
                 })
         
-        return {
-            'response': response_text,
-            'sources': source_list,
-            'tool_calls': tool_calls,
-            'notes': [note.to_dict() for note in self.notes]
-        }
+            return {
+                'response': response_text,
+                'sources': source_list,
+                'tool_calls': tool_calls,
+                'notes': [note.to_dict() for note in self.notes]
+            }
+        except Exception as e:
+            print(f"Error in process_message: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def clear_session(self):
         """Clear notes and sources for a new session"""
