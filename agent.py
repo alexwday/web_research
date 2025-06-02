@@ -308,54 +308,54 @@ class ResearchAgent:
                 tool_choice="auto"
             )
             print("Initial completion successful")
-        
-        # Process tool calls
-        tool_calls = []
-        if response.choices[0].message.tool_calls:
-            for tool_call in response.choices[0].message.tool_calls:
-                tool_name = tool_call.function.name
-                arguments = json.loads(tool_call.function.arguments)
-                
-                # Execute tool
-                result = self.execute_tool(tool_name, arguments)
-                tool_calls.append({
-                    'tool': tool_name,
-                    'arguments': arguments,
-                    'result': result
-                })
-                
-                # Add tool result to messages
-                messages.append(response.choices[0].message)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(result)
-                })
             
-            # Get final response after tool use
-            final_response = self.client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages
-            )
+            # Process tool calls
+            tool_calls = []
+            if response.choices[0].message.tool_calls:
+                for tool_call in response.choices[0].message.tool_calls:
+                    tool_name = tool_call.function.name
+                    arguments = json.loads(tool_call.function.arguments)
+                    
+                    # Execute tool
+                    result = self.execute_tool(tool_name, arguments)
+                    tool_calls.append({
+                        'tool': tool_name,
+                        'arguments': arguments,
+                        'result': result
+                    })
+                    
+                    # Add tool result to messages
+                    messages.append(response.choices[0].message)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(result)
+                    })
+                
+                # Get final response after tool use
+                final_response = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages
+                )
+                
+                response_text = final_response.choices[0].message.content
+            else:
+                response_text = response.choices[0].message.content
             
-            response_text = final_response.choices[0].message.content
-        else:
-            response_text = response.choices[0].message.content
-        
-        # Extract citations and create source list
-        citation_pattern = r'\[(\d+)\]'
-        citations = list(set(re.findall(citation_pattern, response_text)))
-        
-        # Map citations to sources
-        source_list = []
-        for i, note in enumerate(self.notes):
-            if note.source_url:
-                source_list.append({
-                    'citation': f"[{i+1}]",
-                    'url': note.source_url,
-                    'title': self.sources.get(note.source_url, {}).get('title', note.title)
-                })
-        
+            # Extract citations and create source list
+            citation_pattern = r'\[(\d+)\]'
+            citations = list(set(re.findall(citation_pattern, response_text)))
+            
+            # Map citations to sources
+            source_list = []
+            for i, note in enumerate(self.notes):
+                if note.source_url:
+                    source_list.append({
+                        'citation': f"[{i+1}]",
+                        'url': note.source_url,
+                        'title': self.sources.get(note.source_url, {}).get('title', note.title)
+                    })
+            
             return {
                 'response': response_text,
                 'sources': source_list,
