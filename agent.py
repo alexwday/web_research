@@ -482,7 +482,7 @@ class ResearchAgent:
                 )
                 
                 full_response = ""
-                async for chunk in stream:
+                for chunk in stream:
                     if chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
                         full_response += content
@@ -517,7 +517,7 @@ class ResearchAgent:
                 )
                 
                 full_response = ""
-                async for chunk in stream:
+                for chunk in stream:
                     if chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
                         full_response += content
