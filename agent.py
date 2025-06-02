@@ -191,12 +191,18 @@ class ResearchAgent:
                 print(f"Using urllib3 for problematic site: {url}")
                 response = self._fetch_with_urllib3(url)
             else:
-                response = requests.get(
-                    url,
-                    headers={'User-Agent': 'Mozilla/5.0'},
-                    verify=self.ssl_cert_path,
-                    timeout=REQUEST_TIMEOUT
-                )
+                # Try with proper SSL first
+                try:
+                    response = requests.get(
+                        url,
+                        headers={'User-Agent': 'Mozilla/5.0'},
+                        verify=self.ssl_cert_path,
+                        timeout=REQUEST_TIMEOUT
+                    )
+                except requests.exceptions.SSLError:
+                    # If SSL fails, try without verification
+                    print(f"SSL verification failed for {url}, trying with relaxed SSL")
+                    response = self._fetch_with_urllib3(url)
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -232,7 +238,53 @@ class ResearchAgent:
                 'content': text
             }
             
+        except requests.exceptions.SSLError as e:
+            print(f"SSL Error fetching {url}: {e}")
+            print("Retrying with urllib3 fallback...")
+            try:
+                response = self._fetch_with_urllib3(url)
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Remove script and style elements
+                for script in soup(['script', 'style']):
+                    script.decompose()
+                
+                # Extract text
+                text = soup.get_text()
+                lines = (line.strip() for line in text.splitlines())
+                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                text = ' '.join(chunk for chunk in chunks if chunk)
+                
+                # Limit text length
+                text = text[:MAX_CONTENT_LENGTH] + "..." if len(text) > MAX_CONTENT_LENGTH else text
+                
+                # Extract title
+                title = soup.find('title')
+                title_text = title.get_text(strip=True) if title else urlparse(url).netloc
+                
+                # Update source with full content
+                self.sources[url] = {
+                    'title': title_text,
+                    'content': text,
+                    'timestamp': datetime.now().isoformat(),
+                    'url': url
+                }
+                
+                return {
+                    'success': True,
+                    'url': url,
+                    'title': title_text,
+                    'content': text
+                }
+            except Exception as e2:
+                print(f"urllib3 fallback also failed: {e2}")
+                return {
+                    'success': False,
+                    'url': url,
+                    'error': f"SSL Error: {str(e)}; Fallback error: {str(e2)}"
+                }
         except Exception as e:
+            print(f"Error fetching {url}: {type(e).__name__}: {e}")
             return {
                 'success': False,
                 'url': url,
