@@ -99,27 +99,50 @@ class ResearchAgent:
     
     def _is_problematic_site(self, url: str) -> bool:
         """Check if URL is known to have SSL issues."""
-        problematic_sites = ['github.com', 'githubusercontent.com']
+        problematic_sites = ['github.com', 'githubusercontent.com', 'td.com', 'tdbank.com']
         return any(site in url for site in problematic_sites)
     
     def _fetch_with_urllib3(self, url: str) -> requests.Response:
         """Fetch URL using urllib3 with relaxed SSL validation."""
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # Create a pool manager with completely disabled SSL verification
         http = urllib3.PoolManager(
             cert_reqs='CERT_NONE', 
-            assert_hostname=False, 
+            assert_hostname=False,
+            ca_certs=None,  # Explicitly set to None
             timeout=urllib3.Timeout(connect=REQUEST_TIMEOUT, read=REQUEST_TIMEOUT)
         )
-        response = http.request('GET', url, headers={'User-Agent': 'Mozilla/5.0'})
         
-        # Convert urllib3 response to requests-like response
-        class FakeResponse:
-            def __init__(self, data, status):
-                self.text = data.decode('utf-8')
-                self.status_code = status
-                self.content = data
-                
-        return FakeResponse(response.data, response.status)
+        try:
+            response = http.request(
+                'GET', 
+                url, 
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive',
+                }
+            )
+            
+            # Convert urllib3 response to requests-like response
+            class FakeResponse:
+                def __init__(self, data, status, headers=None):
+                    # Handle different content types
+                    try:
+                        self.text = data.decode('utf-8', errors='replace')
+                    except:
+                        self.text = str(data)
+                    self.status_code = status
+                    self.content = data
+                    self.headers = headers or {}
+                    
+            return FakeResponse(response.data, response.status, response.headers)
+        except Exception as e:
+            print(f"urllib3 request failed: {e}")
+            raise
     
     def search_web(self, query: str) -> Dict[str, Any]:
         """Search the web and store results with sources"""
@@ -205,6 +228,17 @@ class ResearchAgent:
     def fetch_page_content(self, url: str) -> Dict[str, Any]:
         """Fetch and parse content from a specific URL"""
         try:
+            # Check if URL is a PDF
+            if url.lower().endswith('.pdf'):
+                print(f"Detected PDF URL: {url}")
+                # For PDFs, we'll just return metadata for now
+                return {
+                    'success': True,
+                    'url': url,
+                    'title': 'PDF Document',
+                    'content': f'This is a PDF document. Direct PDF viewing is not supported in the preview. Please click "Open in Browser" to view the PDF: {url}'
+                }
+            
             # Use dual strategy for problematic sites
             if self._is_problematic_site(url):
                 print(f"Using urllib3 for problematic site: {url}")
@@ -212,15 +246,23 @@ class ResearchAgent:
             else:
                 # Try with proper SSL first
                 try:
-                    response = requests.get(
+                    # Create a session with SSL adapter
+                    session = requests.Session()
+                    session.headers.update({
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    })
+                    
+                    response = session.get(
                         url,
-                        headers={'User-Agent': 'Mozilla/5.0'},
                         verify=self.ssl_cert_path,
-                        timeout=REQUEST_TIMEOUT
+                        timeout=REQUEST_TIMEOUT,
+                        allow_redirects=True
                     )
-                except requests.exceptions.SSLError:
+                except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
                     # If SSL fails, try without verification
-                    print(f"SSL verification failed for {url}, trying with relaxed SSL")
+                    print(f"SSL/Connection error for {url}: {e}")
+                    print("Trying with urllib3 fallback...")
                     response = self._fetch_with_urllib3(url)
             
             soup = BeautifulSoup(response.text, 'html.parser')
