@@ -339,8 +339,7 @@ class ResearchAgent:
             response = self.client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
-                tools=self.get_tools(),
-                tool_choice="auto"
+                tools=self.get_tools()
             )
             print("Initial completion successful")
             
