@@ -153,9 +153,22 @@
             text-decoration: none;
             cursor: pointer;
             font-weight: 500;
+            background-color: #e3f2fd;
+            padding: 0 0.2rem;
+            border-radius: 3px;
         }
         
         .citation:hover {
+            text-decoration: underline;
+            background-color: #bbdefb;
+        }
+        
+        .assistant-message a {
+            color: #3498db;
+            cursor: pointer;
+        }
+        
+        .assistant-message a:hover {
             text-decoration: underline;
         }
         
@@ -426,18 +439,34 @@
                 const responseDiv = document.createElement('div');
                 responseDiv.className = 'message assistant-message';
                 
-                // Process response text to add clickable citations
-                let responseText = data.data.response;
+                // First render markdown
+                let htmlContent = marked.parse(data.data.response);
+                
+                // Then process citations in the HTML
                 data.data.sources.forEach(source => {
                     const citation = source.citation;
                     const regex = new RegExp(`\\${citation}`, 'g');
-                    responseText = responseText.replace(regex, 
-                        `<a class="citation" onclick="viewSource('${source.url}')" title="${source.title}">${citation}</a>`
+                    htmlContent = htmlContent.replace(regex, 
+                        `<a class="citation" href="#" onclick="viewSource('${source.url}'); return false;" title="${source.title}">${citation}</a>`
                     );
                 });
                 
-                // Render markdown
-                responseDiv.innerHTML = marked.parse(responseText);
+                // Also intercept any regular links to open in viewer
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = htmlContent;
+                
+                // Find all links that aren't citations
+                tempDiv.querySelectorAll('a:not(.citation)').forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href && href.startsWith('http')) {
+                        link.setAttribute('href', '#');
+                        link.setAttribute('onclick', `viewSource('${href}'); return false;`);
+                        link.style.color = '#3498db';
+                        link.style.textDecoration = 'underline';
+                    }
+                });
+                
+                responseDiv.innerHTML = tempDiv.innerHTML;
                 messagesDiv.appendChild(responseDiv);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 
@@ -498,6 +527,7 @@
         let currentSourceUrl = '';
         
         async function viewSource(url) {
+            console.log('Opening source:', url);
             const viewer = document.getElementById('sourceViewer');
             const titleEl = document.getElementById('sourceTitle');
             const textEl = document.getElementById('sourceText');
@@ -515,18 +545,27 @@
             // Update URL display
             urlEl.textContent = url;
             
+            // Set loading state
+            textEl.innerHTML = '<p>Loading content...</p>';
+            titleEl.textContent = 'Loading...';
+            
             // Load source
             try {
                 const response = await fetch(`/api/source/${encodeURIComponent(url)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
                 const data = await response.json();
                 
-                titleEl.textContent = data.title;
+                titleEl.textContent = data.title || 'Source';
                 textEl.innerHTML = marked.parse(data.content || 'No content available');
                 
-                // Prepare iframe (but don't load until preview tab is clicked)
+                // Clear iframe when switching sources
                 iframeEl.src = '';
             } catch (error) {
+                console.error('Error loading source:', error);
                 textEl.innerHTML = `<p>Error loading source: ${error.message}</p>`;
+                titleEl.textContent = 'Error';
             }
         }
         
