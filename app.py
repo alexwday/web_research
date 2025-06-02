@@ -90,15 +90,33 @@ async def websocket_endpoint(websocket: WebSocket):
                     'status': 'thinking'
                 }))
                 
+                # Define callback for streaming
+                async def status_callback(event_type, data):
+                    if event_type == 'tool_use':
+                        await websocket.send_text(json.dumps({
+                            'type': 'tool_use',
+                            'tool': data['tool'],
+                            'arguments': data['arguments']
+                        }))
+                    elif event_type == 'stream_chunk':
+                        await websocket.send_text(json.dumps({
+                            'type': 'stream',
+                            'content': data['content']
+                        }))
+                    elif event_type == 'complete':
+                        await websocket.send_text(json.dumps({
+                            'type': 'complete',
+                            'data': data
+                        }))
+                    elif event_type == 'error':
+                        await websocket.send_text(json.dumps({
+                            'type': 'error',
+                            'message': data['error']
+                        }))
+                
                 try:
-                    # Process message (this is blocking, in production use background task)
-                    result = agent.process_message(user_message)
-                    
-                    # Send response
-                    await websocket.send_text(json.dumps({
-                        'type': 'response',
-                        'data': result
-                    }))
+                    # Process message with streaming
+                    await agent.process_message_stream(user_message, status_callback)
                     
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")

@@ -16,6 +16,7 @@ SSL_CERT_PATH = 'ssl_certs/rbc-ca-bundle.cer'
 
 # Model Configuration
 MODEL_NAME = 'gpt-4o-mini-2024-07-18'  # or 'gpt-4o-2024-05-13'
+MAX_TOKENS = 4096  # Maximum tokens for model responses
 
 # Server Configuration
 SERVER_HOST = '0.0.0.0'

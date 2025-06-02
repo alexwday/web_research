@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse
 import hashlib
-from config import MODEL_NAME, MAX_SEARCH_RESULTS, MAX_CONTENT_LENGTH, REQUEST_TIMEOUT
+from config import MODEL_NAME, MAX_SEARCH_RESULTS, MAX_CONTENT_LENGTH, REQUEST_TIMEOUT, MAX_TOKENS
 import urllib3
 
 
@@ -316,7 +316,7 @@ class ResearchAgent:
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
     
-    def process_message(self, user_message: str) -> Dict[str, Any]:
+    def process_message(self, user_message: str, status_callback=None) -> Dict[str, Any]:
         """Process a user message and return response with sources"""
         try:
             print(f"Processing message: {user_message[:50]}...")
@@ -339,7 +339,8 @@ class ResearchAgent:
             response = self.client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
-                tools=self.get_tools()
+                tools=self.get_tools(),
+                max_tokens=MAX_TOKENS
             )
             print("Initial completion successful")
             
@@ -349,6 +350,13 @@ class ResearchAgent:
                 for tool_call in response.choices[0].message.tool_calls:
                     tool_name = tool_call.function.name
                     arguments = json.loads(tool_call.function.arguments)
+                    
+                    # Notify about tool usage
+                    if status_callback:
+                        status_callback('tool_use', {
+                            'tool': tool_name,
+                            'arguments': arguments
+                        })
                     
                     # Execute tool
                     result = self.execute_tool(tool_name, arguments)
@@ -369,7 +377,8 @@ class ResearchAgent:
                 # Get final response after tool use
                 final_response = self.client.chat.completions.create(
                     model=MODEL_NAME,
-                    messages=messages
+                    messages=messages,
+                    max_tokens=MAX_TOKENS
                 )
                 
                 response_text = final_response.choices[0].message.content
@@ -406,3 +415,127 @@ class ResearchAgent:
         """Clear notes and sources for a new session"""
         self.notes.clear()
         self.sources.clear()
+    
+    async def process_message_stream(self, user_message: str, status_callback=None):
+        """Process a user message and stream the response"""
+        try:
+            print(f"Processing message (streaming): {user_message[:50]}...")
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": """You are a helpful research assistant. When answering questions:
+1. Search for relevant information if needed
+2. Take notes on important findings with source URLs
+3. Provide comprehensive answers with citations
+4. Format citations as [1], [2], etc. in your response
+5. Always cite your sources when using web information"""
+                },
+                {"role": "user", "content": user_message}
+            ]
+            
+            # First call with tools
+            print(f"Calling {MODEL_NAME} with tools...")
+            response = self.client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                tools=self.get_tools(),
+                max_tokens=MAX_TOKENS
+            )
+            
+            # Process tool calls
+            tool_calls = []
+            if response.choices[0].message.tool_calls:
+                for tool_call in response.choices[0].message.tool_calls:
+                    tool_name = tool_call.function.name
+                    arguments = json.loads(tool_call.function.arguments)
+                    
+                    # Notify about tool usage
+                    if status_callback:
+                        await status_callback('tool_use', {
+                            'tool': tool_name,
+                            'arguments': arguments
+                        })
+                    
+                    # Execute tool
+                    result = self.execute_tool(tool_name, arguments)
+                    tool_calls.append({
+                        'tool': tool_name,
+                        'arguments': arguments,
+                        'result': result
+                    })
+                    
+                    # Add tool result to messages
+                    messages.append(response.choices[0].message)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(result)
+                    })
+                
+                # Get final streaming response
+                stream = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    max_tokens=MAX_TOKENS,
+                    stream=True
+                )
+                
+                full_response = ""
+                async for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        full_response += content
+                        if status_callback:
+                            await status_callback('stream_chunk', {'content': content})
+                
+                # Send final data with sources
+                source_list = []
+                for i, note in enumerate(self.notes):
+                    if note.source_url:
+                        source_list.append({
+                            'citation': f"[{i+1}]",
+                            'url': note.source_url,
+                            'title': self.sources.get(note.source_url, {}).get('title', note.title)
+                        })
+                
+                if status_callback:
+                    await status_callback('complete', {
+                        'response': full_response,
+                        'sources': source_list,
+                        'tool_calls': tool_calls,
+                        'notes': [note.to_dict() for note in self.notes]
+                    })
+                
+            else:
+                # No tools needed, stream directly
+                stream = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    max_tokens=MAX_TOKENS,
+                    stream=True
+                )
+                
+                full_response = ""
+                async for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        full_response += content
+                        if status_callback:
+                            await status_callback('stream_chunk', {'content': content})
+                
+                if status_callback:
+                    await status_callback('complete', {
+                        'response': full_response,
+                        'sources': [],
+                        'tool_calls': [],
+                        'notes': []
+                    })
+                    
+        except Exception as e:
+            print(f"Error in process_message_stream: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            if status_callback:
+                await status_callback('error', {'error': str(e)})
+            raise

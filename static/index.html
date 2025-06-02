@@ -148,6 +148,47 @@
             60%, 100% { content: '...'; }
         }
         
+        .tool-use {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-left: 3px solid #ffc107;
+        }
+        
+        .tool-icon {
+            font-size: 1.1rem;
+        }
+        
+        .streaming-message {
+            background-color: #ecf0f1;
+            color: #2c3e50;
+            margin-right: 20%;
+            padding: 0.75rem;
+            border-radius: 8px;
+            min-height: 2rem;
+        }
+        
+        .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background-color: #3498db;
+            animation: blink 1s infinite;
+            vertical-align: text-bottom;
+            margin-left: 2px;
+        }
+        
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+        
         .citation {
             color: #3498db;
             text-decoration: none;
@@ -416,6 +457,9 @@
             };
         }
         
+        let currentStreamingDiv = null;
+        let streamingContent = '';
+        
         function handleServerMessage(data) {
             const messagesDiv = document.getElementById('messages');
             
@@ -428,47 +472,85 @@
                 messagesDiv.appendChild(thinkingDiv);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 
-            } else if (data.type === 'response') {
-                // Remove thinking indicator
+            } else if (data.type === 'tool_use') {
+                // Show tool usage
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'tool-use';
+                
+                let toolIcon = '🔧';
+                let toolText = '';
+                
+                if (data.tool === 'search_web') {
+                    toolIcon = '🔍';
+                    toolText = `Searching: "${data.arguments.query}"`;
+                } else if (data.tool === 'fetch_page_content') {
+                    toolIcon = '📄';
+                    const url = new URL(data.arguments.url);
+                    toolText = `Fetching content from ${url.hostname}`;
+                } else if (data.tool === 'take_note') {
+                    toolIcon = '📝';
+                    toolText = `Taking notes...`;
+                }
+                
+                toolDiv.innerHTML = `<span class="tool-icon">${toolIcon}</span> ${toolText}`;
+                messagesDiv.appendChild(toolDiv);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                
+            } else if (data.type === 'stream') {
+                // Remove thinking indicator if present
                 const thinkingIndicator = document.getElementById('thinking-indicator');
                 if (thinkingIndicator) {
                     thinkingIndicator.remove();
                 }
                 
-                // Add assistant response
-                const responseDiv = document.createElement('div');
-                responseDiv.className = 'message assistant-message';
+                // Create or update streaming message
+                if (!currentStreamingDiv) {
+                    currentStreamingDiv = document.createElement('div');
+                    currentStreamingDiv.className = 'message streaming-message';
+                    messagesDiv.appendChild(currentStreamingDiv);
+                    streamingContent = '';
+                }
                 
-                // First render markdown
-                let htmlContent = marked.parse(data.data.response);
-                
-                // Then process citations in the HTML
-                data.data.sources.forEach(source => {
-                    const citation = source.citation;
-                    const regex = new RegExp(`\\${citation}`, 'g');
-                    htmlContent = htmlContent.replace(regex, 
-                        `<a class="citation" href="#" onclick="viewSource('${source.url}'); return false;" title="${source.title}">${citation}</a>`
-                    );
-                });
-                
-                // Also intercept any regular links to open in viewer
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = htmlContent;
-                
-                // Find all links that aren't citations
-                tempDiv.querySelectorAll('a:not(.citation)').forEach(link => {
-                    const href = link.getAttribute('href');
-                    if (href && href.startsWith('http')) {
-                        link.setAttribute('href', '#');
-                        link.setAttribute('onclick', `viewSource('${href}'); return false;`);
-                        link.style.color = '#3498db';
-                        link.style.textDecoration = 'underline';
-                    }
-                });
-                
-                responseDiv.innerHTML = tempDiv.innerHTML;
-                messagesDiv.appendChild(responseDiv);
+                streamingContent += data.content;
+                currentStreamingDiv.innerHTML = marked.parse(streamingContent) + '<span class="cursor"></span>';
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                
+            } else if (data.type === 'complete') {
+                // Finalize the streaming message
+                if (currentStreamingDiv) {
+                    currentStreamingDiv.classList.remove('streaming-message');
+                    currentStreamingDiv.classList.add('assistant-message');
+                    
+                    // Process citations and links
+                    let htmlContent = marked.parse(data.data.response);
+                    
+                    // Process citations
+                    data.data.sources.forEach(source => {
+                        const citation = source.citation;
+                        const regex = new RegExp(`\\${citation}`, 'g');
+                        htmlContent = htmlContent.replace(regex, 
+                            `<a class="citation" href="#" onclick="viewSource('${source.url}'); return false;" title="${source.title}">${citation}</a>`
+                        );
+                    });
+                    
+                    // Intercept regular links
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = htmlContent;
+                    
+                    tempDiv.querySelectorAll('a:not(.citation)').forEach(link => {
+                        const href = link.getAttribute('href');
+                        if (href && href.startsWith('http')) {
+                            link.setAttribute('href', '#');
+                            link.setAttribute('onclick', `viewSource('${href}'); return false;`);
+                            link.style.color = '#3498db';
+                            link.style.textDecoration = 'underline';
+                        }
+                    });
+                    
+                    currentStreamingDiv.innerHTML = tempDiv.innerHTML;
+                    currentStreamingDiv = null;
+                    streamingContent = '';
+                }
                 
             } else if (data.type === 'error') {
                 // Remove thinking indicator
