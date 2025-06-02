@@ -145,8 +145,16 @@ class ResearchAgent:
                 
                 if link_elem and link_elem.get('href'):
                     url = link_elem['href']
+                    # DuckDuckGo sometimes returns URLs starting with //
+                    if url.startswith('//'):
+                        url = 'https:' + url
+                    elif url.startswith('/'):
+                        url = 'https://duckduckgo.com' + url
+                    
                     title = link_elem.get_text(strip=True)
                     snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
+                    
+                    print(f"Found search result: {url}")
                     
                     results.append({
                         'url': url,

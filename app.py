@@ -8,6 +8,7 @@ from typing import Dict, Any
 from agent import ResearchAgent
 import asyncio
 import logging
+from datetime import datetime
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -143,33 +144,49 @@ async def get_source(url: str):
     """Get source content for viewing"""
     agent = get_agent()
     
-    if url in agent.sources:
-        source_data = agent.sources[url]
-        
-        # If we don't have full content, fetch it
-        if 'content' not in source_data:
-            result = agent.fetch_page_content(url)
-            if result['success']:
-                source_data = agent.sources[url]
-        
-        return {
-            'url': url,
-            'title': source_data.get('title', 'Unknown'),
-            'content': source_data.get('content', source_data.get('snippet', '')),
-            'timestamp': source_data.get('timestamp')
-        }
-    else:
-        # Try to fetch it
+    logger.info(f"Fetching source: {url}")
+    
+    # Always try to fetch fresh content
+    try:
         result = agent.fetch_page_content(url)
         if result['success']:
             return {
                 'url': url,
-                'title': result['title'],
-                'content': result['content'],
-                'timestamp': agent.sources[url]['timestamp']
+                'title': result.get('title', 'Unknown'),
+                'content': result.get('content', 'No content available'),
+                'timestamp': datetime.now().isoformat()
             }
         else:
-            raise HTTPException(status_code=404, detail="Source not found")
+            # If fetch failed, check if we have cached data
+            if url in agent.sources:
+                source_data = agent.sources[url]
+                return {
+                    'url': url,
+                    'title': source_data.get('title', 'Unknown'),
+                    'content': source_data.get('content', source_data.get('snippet', 'No content available')),
+                    'timestamp': source_data.get('timestamp', datetime.now().isoformat())
+                }
+            else:
+                logger.error(f"Failed to fetch source: {url} - {result.get('error', 'Unknown error')}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to fetch source: {result.get('error', 'Unknown error')}"
+                )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching source {url}: {e}")
+        # Try to return cached data if available
+        if url in agent.sources:
+            source_data = agent.sources[url]
+            return {
+                'url': url,
+                'title': source_data.get('title', 'Unknown'),
+                'content': source_data.get('content', source_data.get('snippet', 'Error loading content')),
+                'timestamp': source_data.get('timestamp', datetime.now().isoformat())
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Error fetching source: {str(e)}")
 
 
 @app.get("/api/notes")
