@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SSL-Aware Web Scraper Test Component
-A web scraping module that uses the same SSL configuration as the cohere_testing framework
+A web scraping module that uses the web_research_framework SSL configuration
 to handle enterprise environment SSL requirements.
 """
 
@@ -16,6 +16,14 @@ import json
 import sys
 from pathlib import Path
 
+# Import SSL setup from our framework
+try:
+    from web_research_framework.src.initial_setup.ssl import setup_ssl
+    SSL_MODULE_AVAILABLE = True
+except ImportError:
+    print("Warning: web_research_framework SSL module not found. Using fallback SSL configuration.")
+    SSL_MODULE_AVAILABLE = False
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -27,12 +35,12 @@ class SSLWebScraper:
     Uses the same SSL configuration patterns as the cohere_testing framework.
     """
     
-    def __init__(self, timeout: int = 10, max_retries: int = 3, ssl_cert_path: str = None):
+    def __init__(self, timeout: int = 10, max_retries: int = 3):
         self.timeout = timeout
         self.max_retries = max_retries
-        self.ssl_cert_path = ssl_cert_path
+        self.ssl_cert_path = None
         
-        # Configure SSL based on environment
+        # Configure SSL using the framework
         self._configure_ssl()
         
         # Create session with SSL configuration
@@ -63,8 +71,28 @@ class SSLWebScraper:
     
     def _configure_ssl(self) -> None:
         """
-        Configure SSL settings using the same pattern as cohere_testing.
-        Try to find and use enterprise SSL certificates.
+        Configure SSL settings using the web_research_framework SSL module.
+        """
+        if SSL_MODULE_AVAILABLE:
+            try:
+                ssl_result = setup_ssl()
+                logger.info(f"SSL setup result: {ssl_result}")
+                
+                # Get the configured SSL cert path from environment
+                self.ssl_cert_path = os.environ.get('SSL_CERT_FILE') or os.environ.get('REQUESTS_CA_BUNDLE')
+                if self.ssl_cert_path:
+                    logger.info(f"Using SSL certificate: {self.ssl_cert_path}")
+                
+            except Exception as e:
+                logger.warning(f"SSL setup failed: {str(e)}")
+                self._fallback_ssl_configure()
+        else:
+            logger.info("SSL module not available, using fallback configuration")
+            self._fallback_ssl_configure()
+    
+    def _fallback_ssl_configure(self) -> None:
+        """
+        Fallback SSL configuration when framework module is not available.
         """
         # Check if SSL is already configured via environment variables
         if 'SSL_CERT_FILE' in os.environ:
@@ -89,7 +117,7 @@ class SSLWebScraper:
         for cert_path in common_cert_paths:
             if os.path.exists(cert_path):
                 self.ssl_cert_path = cert_path
-                # Set environment variables like cohere_testing does
+                # Set environment variables
                 os.environ["SSL_CERT_FILE"] = cert_path
                 os.environ["REQUESTS_CA_BUNDLE"] = cert_path
                 logger.info(f"Found and configured SSL certificate: {cert_path}")
@@ -98,7 +126,7 @@ class SSLWebScraper:
         # If we're in an enterprise environment but no certs found, warn user
         if self._is_enterprise_env():
             logger.warning("Enterprise environment detected but no SSL certificates found")
-            logger.warning("You may need to configure SSL_CERT_PATH manually")
+            logger.warning("Configure SSL certificate path in web_research_framework/src/initial_setup/ssl/ssl_settings.py")
     
     def test_connectivity(self, test_urls: List[str]) -> Dict[str, dict]:
         """Test connectivity to various websites with detailed SSL error reporting."""
