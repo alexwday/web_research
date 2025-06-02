@@ -13,15 +13,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration - these should be updated with actual values
-CONFIG = {
-    'oauth_url': os.getenv('OAUTH_URL', 'YOUR_OAUTH_URL'),
-    'client_id': os.getenv('OAUTH_CLIENT_ID', 'YOUR_CLIENT_ID'),
-    'client_secret': os.getenv('OAUTH_CLIENT_SECRET', 'YOUR_CLIENT_SECRET'),
-    'base_url': os.getenv('COHERE_BASE_URL', 'YOUR_BASE_URL')
-}
-
-SSL_CERT_PATH = 'ssl_certs/rbc-ca-bundle.cer'
+# Import configuration
+from config import OAUTH_CONFIG, SSL_CERT_PATH, SERVER_HOST, SERVER_PORT
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -41,7 +34,7 @@ agent = None
 def get_agent():
     global agent
     if agent is None:
-        agent = ResearchAgent(CONFIG, SSL_CERT_PATH)
+        agent = ResearchAgent(OAUTH_CONFIG, SSL_CERT_PATH)
     return agent
 
 
@@ -152,4 +145,4 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)

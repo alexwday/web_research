@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse
 import hashlib
+from config import MODEL_NAME, MAX_SEARCH_RESULTS, MAX_CONTENT_LENGTH, REQUEST_TIMEOUT
 
 
 class ResearchNote:
@@ -75,14 +76,14 @@ class ResearchAgent:
                 search_url,
                 headers={'User-Agent': 'Mozilla/5.0'},
                 verify=self.ssl_cert_path,
-                timeout=10
+                timeout=REQUEST_TIMEOUT
             )
             
             soup = BeautifulSoup(response.text, 'html.parser')
             results = []
             
             # Extract search results
-            for result in soup.find_all('div', class_='result')[:5]:  # Top 5 results
+            for result in soup.find_all('div', class_='result')[:MAX_SEARCH_RESULTS]:
                 link_elem = result.find('a', class_='result__a')
                 snippet_elem = result.find('a', class_='result__snippet')
                 
@@ -125,7 +126,7 @@ class ResearchAgent:
                 url,
                 headers={'User-Agent': 'Mozilla/5.0'},
                 verify=self.ssl_cert_path,
-                timeout=10
+                timeout=REQUEST_TIMEOUT
             )
             
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -141,7 +142,7 @@ class ResearchAgent:
             text = ' '.join(chunk for chunk in chunks if chunk)
             
             # Limit text length
-            text = text[:3000] + "..." if len(text) > 3000 else text
+            text = text[:MAX_CONTENT_LENGTH] + "..." if len(text) > MAX_CONTENT_LENGTH else text
             
             # Extract title
             title = soup.find('title')
@@ -271,7 +272,7 @@ class ResearchAgent:
         
         # Create completion with tools
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini-2024-07-18",
+            model=MODEL_NAME,
             messages=messages,
             tools=self.get_tools(),
             tool_choice="auto"
@@ -302,7 +303,7 @@ class ResearchAgent:
             
             # Get final response after tool use
             final_response = self.client.chat.completions.create(
-                model="gpt-4o-mini-2024-07-18",
+                model=MODEL_NAME,
                 messages=messages
             )
             

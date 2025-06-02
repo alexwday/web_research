@@ -3,7 +3,7 @@
 Research Assistant Application Launcher
 
 Before running:
-1. Update CONFIG in app.py with your OAuth credentials
+1. Update config.py with your OAuth credentials and model settings
 2. Ensure ssl_certs/rbc-ca-bundle.cer exists
 3. Install dependencies: pip install -r requirements.txt
 """
@@ -11,31 +11,40 @@ Before running:
 import os
 import sys
 
-# Check for required environment variables or config
-required_config = {
-    'OAUTH_URL': 'OAuth token endpoint URL',
-    'OAUTH_CLIENT_ID': 'OAuth client ID',
-    'OAUTH_CLIENT_SECRET': 'OAuth client secret',
-    'COHERE_BASE_URL': 'Cohere API base URL'
-}
-
-print("Research Assistant Starting...")
-print("-" * 50)
-
-# Check configuration
-missing_config = []
-for key, desc in required_config.items():
-    if not os.getenv(key):
-        missing_config.append(f"{key}: {desc}")
-
-if missing_config:
-    print("WARNING: Missing configuration:")
-    for item in missing_config:
-        print(f"  - {item}")
-    print("\nYou can either:")
-    print("1. Set these as environment variables")
-    print("2. Update CONFIG dict in app.py directly")
+# Try to import config
+try:
+    from config import OAUTH_CONFIG, SSL_CERT_PATH, MODEL_NAME
+    
+    print("Research Assistant Starting...")
     print("-" * 50)
+    
+    # Check configuration
+    missing_config = []
+    if OAUTH_CONFIG['oauth_url'] == 'YOUR_OAUTH_URL_HERE':
+        missing_config.append("OAuth URL")
+    if OAUTH_CONFIG['client_id'] == 'YOUR_CLIENT_ID_HERE':
+        missing_config.append("Client ID")
+    if OAUTH_CONFIG['client_secret'] == 'YOUR_CLIENT_SECRET_HERE':
+        missing_config.append("Client Secret")
+    if OAUTH_CONFIG['base_url'] == 'YOUR_COHERE_BASE_URL_HERE':
+        missing_config.append("Cohere Base URL")
+    
+    if missing_config:
+        print("ERROR: Please update config.py with your credentials:")
+        for item in missing_config:
+            print(f"  - {item}")
+        print("\nEdit config.py and replace the placeholder values with your actual credentials.")
+        print("-" * 50)
+        sys.exit(1)
+    
+    print(f"Configuration loaded successfully")
+    print(f"Model: {MODEL_NAME}")
+    print("-" * 50)
+    
+except ImportError:
+    print("ERROR: config.py not found")
+    print("Please check that config.py exists in the current directory")
+    sys.exit(1)
 
 # Check SSL certificate
 if not os.path.exists('ssl_certs/rbc-ca-bundle.cer'):
