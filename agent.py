@@ -144,12 +144,31 @@ class ResearchAgent:
                 snippet_elem = result.find('a', class_='result__snippet')
                 
                 if link_elem and link_elem.get('href'):
-                    url = link_elem['href']
-                    # DuckDuckGo sometimes returns URLs starting with //
-                    if url.startswith('//'):
-                        url = 'https:' + url
-                    elif url.startswith('/'):
-                        url = 'https://duckduckgo.com' + url
+                    # DuckDuckGo HTML returns URLs in a special format
+                    href = link_elem['href']
+                    
+                    # Check for the actual URL in the result__url span
+                    url_elem = result.find('span', class_='result__url')
+                    if url_elem:
+                        # Extract the actual URL from the span text
+                        url_text = url_elem.get_text(strip=True)
+                        # Clean up the URL
+                        if url_text.startswith('https://'):
+                            url = url_text
+                        elif url_text.startswith('http://'):
+                            url = url_text
+                        else:
+                            # If no protocol, assume https
+                            url = 'https://' + url_text
+                    else:
+                        # Fallback to href parsing
+                        url = href
+                        if url.startswith('//'):
+                            url = 'https:' + url
+                        elif url.startswith('/'):
+                            # This is likely a relative URL, skip it
+                            print(f"Skipping relative URL: {url}")
+                            continue
                     
                     title = link_elem.get_text(strip=True)
                     snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
