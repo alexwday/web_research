@@ -194,7 +194,6 @@ def test_streaming(oauth_token: str) -> bool:
             model=CONFIG["MODEL_SMALL"],
             messages=messages,
             stream=True,
-            stream_options={"include_usage": True},
             timeout=CONFIG["REQUEST_TIMEOUT"]
         )
         
@@ -206,10 +205,10 @@ def test_streaming(oauth_token: str) -> bool:
             if chunk.choices and chunk.choices[0].delta.content:
                 content_chunks.append(chunk.choices[0].delta.content)
             
-            # Log usage if in final chunk
-            if hasattr(chunk, 'usage') and chunk.usage:
-                logger.info(f"Stream usage - Prompt: {chunk.usage.prompt_tokens}, "
-                          f"Completion: {chunk.usage.completion_tokens}")
+            # Cohere models don't provide usage in stream chunks
+            # Just log chunk info occasionally
+            if chunks_received % 10 == 0:
+                logger.info(f"Received {chunks_received} chunks so far...")
             
             # Reasonable limit
             if chunks_received > 50:
