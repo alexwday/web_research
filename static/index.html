@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Research Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -90,6 +91,42 @@
             background-color: #ecf0f1;
             color: #2c3e50;
             margin-right: 20%;
+        }
+        
+        .assistant-message h1, .assistant-message h2, .assistant-message h3 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .assistant-message p {
+            margin-bottom: 0.5rem;
+            line-height: 1.6;
+        }
+        
+        .assistant-message ul, .assistant-message ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .assistant-message code {
+            background-color: #dfe4ea;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .assistant-message pre {
+            background-color: #2c3e50;
+            color: white;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-bottom: 0.5rem;
+        }
+        
+        .assistant-message pre code {
+            background-color: transparent;
+            padding: 0;
         }
         
         .thinking {
@@ -193,21 +230,87 @@
         
         .source-content {
             flex: 1;
-            padding: 1rem;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .source-tabs {
+            display: flex;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        
+        .source-tab {
+            padding: 0.75rem 1.5rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #7f8c8d;
+            font-size: 14px;
+            border-bottom: 2px solid transparent;
+        }
+        
+        .source-tab.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+        }
+        
+        .source-tab:hover {
+            color: #2c3e50;
+        }
+        
+        .tab-content {
+            flex: 1;
+            display: none;
             overflow-y: auto;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .source-text {
+            padding: 1rem;
             line-height: 1.6;
         }
         
-        .source-url {
-            color: #3498db;
-            text-decoration: none;
-            font-size: 0.9rem;
-            display: inline-block;
-            margin-top: 0.5rem;
+        .source-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
         }
         
-        .source-url:hover {
-            text-decoration: underline;
+        .source-actions {
+            padding: 1rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            background-color: #f8f9fa;
+            border-top: 1px solid #ecf0f1;
+        }
+        
+        .source-url {
+            flex: 1;
+            color: #7f8c8d;
+            font-size: 0.85rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .open-external {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        
+        .open-external:hover {
+            background-color: #2980b9;
         }
         
         .error-message {
@@ -250,8 +353,21 @@
                 <div class="source-title" id="sourceTitle">Source</div>
                 <button class="close-source" onclick="closeSourceViewer()">&times;</button>
             </div>
-            <div class="source-content" id="sourceContent">
-                <p>Loading...</p>
+            <div class="source-content">
+                <div class="source-tabs">
+                    <button class="source-tab active" onclick="switchTab('text')">Text Content</button>
+                    <button class="source-tab" onclick="switchTab('preview')">Web Preview</button>
+                </div>
+                <div class="tab-content active" id="textTab">
+                    <div class="source-text" id="sourceText">Loading...</div>
+                </div>
+                <div class="tab-content" id="previewTab">
+                    <iframe class="source-iframe" id="sourceIframe" sandbox="allow-scripts allow-same-origin"></iframe>
+                </div>
+            </div>
+            <div class="source-actions">
+                <span class="source-url" id="sourceUrl"></span>
+                <button class="open-external" id="openExternalBtn" onclick="openInBrowser()">Open in Browser</button>
             </div>
         </div>
     </div>
@@ -320,7 +436,8 @@
                     );
                 });
                 
-                responseDiv.innerHTML = responseText;
+                // Render markdown
+                responseDiv.innerHTML = marked.parse(responseText);
                 messagesDiv.appendChild(responseDiv);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 
@@ -378,13 +495,25 @@
             }
         }
         
+        let currentSourceUrl = '';
+        
         async function viewSource(url) {
             const viewer = document.getElementById('sourceViewer');
             const titleEl = document.getElementById('sourceTitle');
-            const contentEl = document.getElementById('sourceContent');
+            const textEl = document.getElementById('sourceText');
+            const urlEl = document.getElementById('sourceUrl');
+            const iframeEl = document.getElementById('sourceIframe');
+            
+            currentSourceUrl = url;
             
             // Show viewer
             viewer.classList.add('active');
+            
+            // Reset to text tab
+            switchTab('text');
+            
+            // Update URL display
+            urlEl.textContent = url;
             
             // Load source
             try {
@@ -392,12 +521,43 @@
                 const data = await response.json();
                 
                 titleEl.textContent = data.title;
-                contentEl.innerHTML = `
-                    <p>${data.content}</p>
-                    <a href="${data.url}" target="_blank" class="source-url">Open in new tab →</a>
-                `;
+                textEl.innerHTML = marked.parse(data.content || 'No content available');
+                
+                // Prepare iframe (but don't load until preview tab is clicked)
+                iframeEl.src = '';
             } catch (error) {
-                contentEl.innerHTML = `<p>Error loading source: ${error.message}</p>`;
+                textEl.innerHTML = `<p>Error loading source: ${error.message}</p>`;
+            }
+        }
+        
+        function switchTab(tab) {
+            const textTab = document.getElementById('textTab');
+            const previewTab = document.getElementById('previewTab');
+            const textBtn = document.querySelector('.source-tab:nth-child(1)');
+            const previewBtn = document.querySelector('.source-tab:nth-child(2)');
+            const iframeEl = document.getElementById('sourceIframe');
+            
+            if (tab === 'text') {
+                textTab.classList.add('active');
+                previewTab.classList.remove('active');
+                textBtn.classList.add('active');
+                previewBtn.classList.remove('active');
+            } else {
+                textTab.classList.remove('active');
+                previewTab.classList.add('active');
+                textBtn.classList.remove('active');
+                previewBtn.classList.add('active');
+                
+                // Load iframe on first preview
+                if (iframeEl.src === '' && currentSourceUrl) {
+                    iframeEl.src = currentSourceUrl;
+                }
+            }
+        }
+        
+        function openInBrowser() {
+            if (currentSourceUrl) {
+                window.open(currentSourceUrl, '_blank');
             }
         }
         
