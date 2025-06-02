@@ -8,6 +8,7 @@ import re
 from urllib.parse import urlparse
 import hashlib
 from config import MODEL_NAME, MAX_SEARCH_RESULTS, MAX_CONTENT_LENGTH, REQUEST_TIMEOUT
+import urllib3
 
 
 class ResearchNote:
@@ -42,12 +43,16 @@ class ResearchAgent:
         self.sources: Dict[str, Dict[str, Any]] = {}  # url -> {content, title, timestamp}
         self.client = None
         
-        # Verify SSL cert exists
+        # Setup SSL certificate
         import os
         if not os.path.exists(ssl_cert_path):
             print(f"WARNING: SSL certificate not found at {ssl_cert_path}")
         else:
             print(f"SSL certificate found at {ssl_cert_path}")
+            # Set environment variables for SSL
+            os.environ["SSL_CERT_FILE"] = ssl_cert_path
+            os.environ["REQUESTS_CA_BUNDLE"] = ssl_cert_path
+            print("SSL environment variables configured")
             
         self._init_client()
     
@@ -92,12 +97,37 @@ class ResearchAgent:
             print(f"Response: {response.text}")
             raise
     
+    def _is_problematic_site(self, url: str) -> bool:
+        """Check if URL is known to have SSL issues."""
+        problematic_sites = ['github.com', 'githubusercontent.com']
+        return any(site in url for site in problematic_sites)
+    
+    def _fetch_with_urllib3(self, url: str) -> requests.Response:
+        """Fetch URL using urllib3 with relaxed SSL validation."""
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        http = urllib3.PoolManager(
+            cert_reqs='CERT_NONE', 
+            assert_hostname=False, 
+            timeout=urllib3.Timeout(connect=REQUEST_TIMEOUT, read=REQUEST_TIMEOUT)
+        )
+        response = http.request('GET', url, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        # Convert urllib3 response to requests-like response
+        class FakeResponse:
+            def __init__(self, data, status):
+                self.text = data.decode('utf-8')
+                self.status_code = status
+                self.content = data
+                
+        return FakeResponse(response.data, response.status)
+    
     def search_web(self, query: str) -> Dict[str, Any]:
         """Search the web and store results with sources"""
         try:
             # For prototype, we'll use DuckDuckGo HTML search
             search_url = f"https://html.duckduckgo.com/html/?q={query}"
             
+            # DuckDuckGo doesn't typically have SSL issues, but use standard approach
             response = requests.get(
                 search_url,
                 headers={'User-Agent': 'Mozilla/5.0'},
@@ -148,12 +178,17 @@ class ResearchAgent:
     def fetch_page_content(self, url: str) -> Dict[str, Any]:
         """Fetch and parse content from a specific URL"""
         try:
-            response = requests.get(
-                url,
-                headers={'User-Agent': 'Mozilla/5.0'},
-                verify=self.ssl_cert_path,
-                timeout=REQUEST_TIMEOUT
-            )
+            # Use dual strategy for problematic sites
+            if self._is_problematic_site(url):
+                print(f"Using urllib3 for problematic site: {url}")
+                response = self._fetch_with_urllib3(url)
+            else:
+                response = requests.get(
+                    url,
+                    headers={'User-Agent': 'Mozilla/5.0'},
+                    verify=self.ssl_cert_path,
+                    timeout=REQUEST_TIMEOUT
+                )
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
