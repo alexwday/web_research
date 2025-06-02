@@ -2,33 +2,29 @@
 
 ## Overview
 
-The web research framework includes its own SSL configuration module that follows the same pattern as the cohere_testing framework. This ensures secure web scraping in enterprise environments.
+The web research framework includes its own SSL configuration module that follows the same pattern as the iris-project framework. The SSL certificate is automatically detected from the framework's SSL directory.
 
 ## Configuration
 
 ### For Enterprise/Work Environments
 
-1. **Locate your SSL certificate file** (usually provided by IT department)
-   - Common locations: `/path/to/company/certificates/ca-bundle.pem`
-   - Ask IT for the certificate path
+1. **Get your SSL certificate file** from your IT department
+   - Usually named something like `ca-bundle.pem`, `company-cert.pem`, etc.
 
-2. **Configure the SSL settings**:
-   Edit `web_research_framework/src/initial_setup/ssl/ssl_settings.py`:
-
-   ```python
-   # Replace these with your actual certificate paths
-   SSL_CERT_DIR = "/path/to/your/certificates"
-   SSL_CERT_FILENAME = "your-ca-bundle.pem"  
+2. **Place the certificate in the SSL directory**:
+   ```bash
+   cp /path/to/your/certificate.pem web_research_framework/src/initial_setup/ssl/ca-bundle.pem
    ```
 
 3. **The framework will automatically**:
+   - Detect the certificate file in its SSL directory
    - Set `SSL_CERT_FILE` environment variable
    - Set `REQUESTS_CA_BUNDLE` environment variable
    - Validate certificate expiration (optional)
 
 ### For Local Development
 
-The framework works out of the box with system SSL certificates. No configuration needed.
+The framework works out of the box with system SSL certificates. If no certificate file is found in the SSL directory, it uses system defaults.
 
 ## Testing SSL Configuration
 
@@ -46,10 +42,22 @@ This will:
 
 ## Environment Variables
 
-The framework respects these environment variables:
+Configure SSL behavior with these environment variables:
 
-- `SSL_CERT_FILE` - Path to SSL certificate
-- `REQUESTS_CA_BUNDLE` - Alternative SSL certificate path
+```bash
+# Certificate filename (default: ca-bundle.pem)
+export WEB_RESEARCH_SSL_CERT_FILENAME="your-cert.pem"
+
+# Enable/disable certificate expiration checking (default: true)
+export WEB_RESEARCH_SSL_CHECK_CERT_EXPIRY="true"
+
+# Days before expiry to start warning (default: 30)
+export WEB_RESEARCH_SSL_EXPIRY_WARNING_DAYS="30"
+```
+
+The framework also respects these standard SSL environment variables:
+- `SSL_CERT_FILE` - Set automatically by the framework
+- `REQUESTS_CA_BUNDLE` - Set automatically by the framework
 - `HTTPS_PROXY` - HTTPS proxy server
 - `HTTP_PROXY` - HTTP proxy server
 
@@ -57,7 +65,7 @@ The framework respects these environment variables:
 
 ### SSL Certificate Errors
 
-1. **"Certificate not found"**: Update paths in `ssl_settings.py`
+1. **"Certificate not found"**: Place certificate in `web_research_framework/src/initial_setup/ssl/` directory
 2. **"SSL verification failed"**: Contact IT for correct certificate
 3. **"Certificate expired"**: Request updated certificate from IT
 
@@ -67,9 +75,21 @@ The framework respects these environment variables:
 # Test basic connectivity
 python -c "import requests; print(requests.get('https://httpbin.org/get').status_code)"
 
-# Test with your certificate
-SSL_CERT_FILE=/path/to/cert.pem python test_web_scraper_ssl.py
+# Test SSL setup
+python -c "from web_research_framework.src.initial_setup.ssl import setup_ssl; print(setup_ssl())"
+
+# Test with custom certificate name
+WEB_RESEARCH_SSL_CERT_FILENAME="my-cert.pem" python test_web_scraper_ssl.py
 ```
+
+## Certificate File Location
+
+The SSL certificate should be placed here:
+```
+web_research_framework/src/initial_setup/ssl/ca-bundle.pem
+```
+
+The framework automatically looks for the certificate in this location and configures SSL accordingly.
 
 ## Integration with Existing Systems
 

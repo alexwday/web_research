@@ -6,5 +6,6 @@ This package provides initial setup functionality for the web research framework
 """
 
 from .ssl import setup_ssl
+from .env_config import config
 
-__all__ = ['setup_ssl']
+__all__ = ['setup_ssl', 'config']

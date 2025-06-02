@@ -31,14 +31,18 @@ try:
 except ImportError:
     CRYPTO_AVAILABLE = False
 
-# Import SSL settings
-from .ssl_settings import (
-    CHECK_CERT_EXPIRY,
-    EXPIRY_WARNING_DAYS,
-    SSL_CERT_DIR,
-    SSL_CERT_FILENAME,
-    SSL_CERT_PATH,
-)
+# Import configuration
+from ..env_config import config
+
+# Get SSL settings from config
+CHECK_CERT_EXPIRY = config.SSL_CHECK_CERT_EXPIRY
+EXPIRY_WARNING_DAYS = config.SSL_EXPIRY_WARNING_DAYS
+SSL_CERT_FILENAME = config.SSL_CERT_FILENAME
+
+# Calculate SSL certificate directory and path based on this module's location
+_MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+SSL_CERT_DIR = _MODULE_DIR
+SSL_CERT_PATH = os.path.join(SSL_CERT_DIR, SSL_CERT_FILENAME)
 
 # Get module logger (no configuration here - using centralized config)
 logger = logging.getLogger(__name__)
@@ -106,39 +110,30 @@ def setup_ssl() -> str:
     Configure SSL environment with existing CA bundle certificate.
 
     This function performs the following steps:
-    1. Checks if SSL certificate path is configured (not placeholder)
-    2. If using placeholder values, returns a message about local environment
-    3. In enterprise environment:
-       a. Verifies the certificate file exists
-       b. Optionally checks certificate expiration (if enabled in settings)
-       c. Sets appropriate environment variables to use the certificate
+    1. Looks for certificate file in the same directory as this module
+    2. If certificate exists, configures environment variables
+    3. If certificate doesn't exist, skips SSL setup for local development
+    4. Optionally checks certificate expiration (if enabled in settings)
 
     Returns:
-        str: Path to the configured SSL certificate or placeholder message
+        str: Path to the configured SSL certificate or info message
 
     Raises:
-        FileNotFoundError: If certificate file does not exist
-        Exception: If certificate validation fails
+        Exception: If certificate validation fails (but not if file doesn't exist)
     """
-    # Check if we're using placeholder/default values
-    if SSL_CERT_DIR == "/path/to/certificates" or SSL_CERT_PATH == "/path/to/certificates/ca-bundle.pem":
-        logger.info("SSL certificate setup skipped - using placeholder configuration for local environment")
-        return "SSL certificate not configured - using system defaults"
-
-    # Enterprise Environment: Proceed with SSL certificate setup
     # Log settings being used
     logger.info(f"SSL setup starting with settings from: {__file__}")
     logger.info(f"Using certificate directory: {SSL_CERT_DIR}")
     logger.info(f"Using certificate filename: {SSL_CERT_FILENAME}")
     logger.info(f"Full certificate path: {SSL_CERT_PATH}")
 
-    # Verify the certificate exists
+    # Check if certificate exists in the module directory
     if not os.path.exists(SSL_CERT_PATH):
-        error_msg = f"Certificate not found at {SSL_CERT_PATH}"
-        logger.error(error_msg)
-        raise FileNotFoundError(error_msg)
+        logger.info(f"Certificate not found at {SSL_CERT_PATH}")
+        logger.info("SSL certificate setup skipped - using system defaults for local development")
+        return "SSL certificate not found - using system defaults"
 
-    logger.info(f"Certificate file exists at {SSL_CERT_PATH}")
+    logger.info(f"Certificate file found at {SSL_CERT_PATH}")
 
     # Check certificate expiry if enabled
     if CHECK_CERT_EXPIRY:
