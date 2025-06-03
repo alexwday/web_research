@@ -430,6 +430,17 @@
         let ws = null;
         let isConnected = false;
         
+        // Configure marked.js globally to open links in new tabs
+        const markedRenderer = new marked.Renderer();
+        markedRenderer.link = function(href, title, text) {
+            return `<a href="${href}" target="_blank" rel="noopener noreferrer" title="${title || ''}">${text}</a>`;
+        };
+        marked.setOptions({
+            renderer: markedRenderer,
+            breaks: true, // Enable line breaks
+            gfm: true // GitHub flavored markdown
+        });
+        
         // Connect to WebSocket
         function connect() {
             ws = new WebSocket('ws://localhost:8000/ws');
