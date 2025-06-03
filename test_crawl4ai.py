@@ -6,7 +6,7 @@ dynamic content, and integration with our SSL certificate setup.
 
 import asyncio
 import os
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from crawl4ai.extraction_strategy import JsonCssExtractionStrategy, LLMExtractionStrategy
 import json
 
@@ -26,11 +26,11 @@ async def test_basic_crawl():
         ] if not os.path.exists(SSL_CERT_PATH) else []
     )
     
-    async with AsyncWebCrawler(browser_config=browser_config) as crawler:
+    async with AsyncWebCrawler(config=browser_config) as crawler:
         # Test a simple website
         result = await crawler.arun(
             url="https://example.com",
-            bypass_cache=True
+            config=CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
         )
         
         print(f"Status: {result.success}")
@@ -49,17 +49,15 @@ async def test_javascript_rendering():
         java_script_enabled=True
     )
     
-    run_config = CrawlerRunConfig(
-        wait_for="css:body",  # Wait for body to load
-        delay_before_return_html=2.0  # Wait 2 seconds for JS to execute
-    )
-    
-    async with AsyncWebCrawler(browser_config=browser_config) as crawler:
+    async with AsyncWebCrawler(config=browser_config) as crawler:
         # Test on a site with dynamic content
         result = await crawler.arun(
             url="https://httpbin.org/delay/1",
-            config=run_config,
-            bypass_cache=True
+            config=CrawlerRunConfig(
+                cache_mode=CacheMode.BYPASS,
+                wait_for="css:body",
+                delay_before_return_html=2.0
+            )
         )
         
         print(f"Status: {result.success}")
@@ -117,8 +115,10 @@ async def test_structured_extraction():
     async with AsyncWebCrawler() as crawler:
         result = await crawler.arun(
             url="https://example.com",
-            extraction_strategy=extraction_strategy,
-            bypass_cache=True
+            config=CrawlerRunConfig(
+                cache_mode=CacheMode.BYPASS,
+                extraction_strategy=extraction_strategy
+            )
         )
         
         print(f"Status: {result.success}")
@@ -145,8 +145,8 @@ async def test_multiple_urls():
         extra_args=['--ignore-certificate-errors']
     )
     
-    async with AsyncWebCrawler(browser_config=browser_config) as crawler:
-        tasks = [crawler.arun(url=url, bypass_cache=True) for url in urls]
+    async with AsyncWebCrawler(config=browser_config) as crawler:
+        tasks = [crawler.arun(url=url, config=CrawlerRunConfig(cache_mode=CacheMode.BYPASS)) for url in urls]
         results = await asyncio.gather(*tasks)
         
         for i, (url, result) in enumerate(zip(urls, results)):
@@ -176,14 +176,14 @@ async def test_with_ssl_sites():
         ]
     )
     
-    async with AsyncWebCrawler(browser_config=browser_config) as crawler:
+    async with AsyncWebCrawler(config=browser_config) as crawler:
         for site in test_sites:
             print(f"\nTesting {site}...")
             try:
                 result = await crawler.arun(
                     url=site,
-                    bypass_cache=True,
                     config=CrawlerRunConfig(
+                        cache_mode=CacheMode.BYPASS,
                         delay_before_return_html=1.0
                     )
                 )
