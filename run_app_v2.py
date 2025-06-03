@@ -15,27 +15,13 @@ def check_requirements():
         import fastapi
         import openai
         import httpx
+        import playwright
         print("✅ All Python requirements installed")
     except ImportError as e:
         print(f"❌ Missing requirement: {e}")
         print("Please run: pip install -r requirements.txt")
-        sys.exit(1)
-    
-    # Check if Playwright browsers are installed
-    try:
-        result = subprocess.run(
-            ["playwright", "show-browsers"],
-            capture_output=True,
-            text=True
-        )
-        if "chromium" not in result.stdout.lower():
-            print("❌ Playwright browsers not installed")
-            print("Please run: playwright install chromium")
-            sys.exit(1)
-        print("✅ Playwright browsers installed")
-    except FileNotFoundError:
-        print("❌ Playwright CLI not found")
-        print("Please run: playwright install")
+        if 'playwright' in str(e):
+            print("Then run: playwright install chromium")
         sys.exit(1)
 
 def check_configuration():
