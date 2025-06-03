@@ -547,15 +547,14 @@ class ResearchAgent:
                     "role": "system",
                     "content": """You are a helpful research assistant. When answering questions:
 1. Search for relevant information if needed
-2. Take notes on important findings with source URLs
-3. Provide comprehensive answers with citations
-4. Format citations as [1], [2], etc. in your response
-5. Always cite your sources when using web information"""
+2. Provide comprehensive answers based on the information found
+3. Do not include links in your response - sources will be provided separately
+4. Focus on synthesizing the information to answer the user's question thoroughly"""
                 },
                 {"role": "user", "content": user_message}
             ]
             
-            # First call with tools
+            # First call with tools to gather information
             print(f"Calling {MODEL_NAME} with tools...")
             response = self.client.chat.completions.create(
                 model=MODEL_NAME,
@@ -564,9 +563,14 @@ class ResearchAgent:
                 max_tokens=MAX_TOKENS
             )
             
-            # Process tool calls
+            # Process tool calls and collect sources
             tool_calls = []
+            collected_sources = []
+            
             if response.choices[0].message.tool_calls:
+                # Add the assistant message with tool calls
+                messages.append(response.choices[0].message)
+                
                 for tool_call in response.choices[0].message.tool_calls:
                     tool_name = tool_call.function.name
                     arguments = json.loads(tool_call.function.arguments)
@@ -586,15 +590,30 @@ class ResearchAgent:
                         'result': result
                     })
                     
+                    # Collect sources from tool results
+                    if tool_name == "search_web" and result.get('success'):
+                        for search_result in result.get('results', []):
+                            collected_sources.append({
+                                'url': search_result['url'],
+                                'title': search_result['title'],
+                                'type': 'search_result'
+                            })
+                    elif tool_name == "fetch_page_content" and result.get('success'):
+                        collected_sources.append({
+                            'url': result['url'],
+                            'title': result['title'],
+                            'type': 'fetched_content'
+                        })
+                    
                     # Add tool result to messages
-                    messages.append(response.choices[0].message)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": json.dumps(result)
                     })
                 
-                # Get final streaming response
+                # Get final streaming response without tools
+                print("Generating final response...")
                 stream = self.client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=messages,
@@ -610,20 +629,11 @@ class ResearchAgent:
                         if status_callback:
                             await status_callback('stream_chunk', {'content': content})
                 
-                # Send final data with sources
-                source_list = []
-                for i, note in enumerate(self.notes):
-                    if note.source_url:
-                        source_list.append({
-                            'citation': f"[{i+1}]",
-                            'url': note.source_url,
-                            'title': self.sources.get(note.source_url, {}).get('title', note.title)
-                        })
-                
+                # Send completion with collected sources
                 if status_callback:
                     await status_callback('complete', {
                         'response': full_response,
-                        'sources': source_list,
+                        'sources': collected_sources,
                         'tool_calls': tool_calls,
                         'notes': [note.to_dict() for note in self.notes]
                     })

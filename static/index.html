@@ -521,33 +521,55 @@
                     currentStreamingDiv.classList.remove('streaming-message');
                     currentStreamingDiv.classList.add('assistant-message');
                     
-                    // Process citations and links
+                    // Use the final response content without processing citations
                     let htmlContent = marked.parse(data.data.response);
+                    currentStreamingDiv.innerHTML = htmlContent;
                     
-                    // Process citations
-                    data.data.sources.forEach(source => {
-                        const citation = source.citation;
-                        const regex = new RegExp(`\\${citation}`, 'g');
-                        htmlContent = htmlContent.replace(regex, 
-                            `<a class="citation" href="#" onclick="viewSource('${source.url}'); return false;" title="${source.title}">${citation}</a>`
-                        );
-                    });
+                    // Add sources section at the bottom if we have sources
+                    if (data.data.sources && data.data.sources.length > 0) {
+                        const sourcesSection = document.createElement('div');
+                        sourcesSection.style.marginTop = '1rem';
+                        sourcesSection.style.paddingTop = '1rem';
+                        sourcesSection.style.borderTop = '1px solid #ddd';
+                        
+                        const sourcesTitle = document.createElement('h4');
+                        sourcesTitle.textContent = 'Sources:';
+                        sourcesTitle.style.marginBottom = '0.5rem';
+                        sourcesTitle.style.color = '#2c3e50';
+                        sourcesSection.appendChild(sourcesTitle);
+                        
+                        const sourcesList = document.createElement('ul');
+                        sourcesList.style.margin = '0';
+                        sourcesList.style.paddingLeft = '1.5rem';
+                        
+                        data.data.sources.forEach((source, index) => {
+                            const listItem = document.createElement('li');
+                            listItem.style.marginBottom = '0.5rem';
+                            
+                            const sourceLink = document.createElement('a');
+                            sourceLink.href = '#';
+                            sourceLink.textContent = source.title || source.url;
+                            sourceLink.style.color = '#3498db';
+                            sourceLink.style.textDecoration = 'none';
+                            sourceLink.onclick = (e) => {
+                                e.preventDefault();
+                                viewSource(source.url);
+                            };
+                            sourceLink.onmouseover = () => {
+                                sourceLink.style.textDecoration = 'underline';
+                            };
+                            sourceLink.onmouseout = () => {
+                                sourceLink.style.textDecoration = 'none';
+                            };
+                            
+                            listItem.appendChild(sourceLink);
+                            sourcesList.appendChild(listItem);
+                        });
+                        
+                        sourcesSection.appendChild(sourcesList);
+                        currentStreamingDiv.appendChild(sourcesSection);
+                    }
                     
-                    // Intercept regular links
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = htmlContent;
-                    
-                    tempDiv.querySelectorAll('a:not(.citation)').forEach(link => {
-                        const href = link.getAttribute('href');
-                        if (href && href.startsWith('http')) {
-                            link.setAttribute('href', '#');
-                            link.setAttribute('onclick', `viewSource('${href}'); return false;`);
-                            link.style.color = '#3498db';
-                            link.style.textDecoration = 'underline';
-                        }
-                    });
-                    
-                    currentStreamingDiv.innerHTML = tempDiv.innerHTML;
                     currentStreamingDiv = null;
                     streamingContent = '';
                 }
