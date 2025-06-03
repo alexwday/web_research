@@ -247,126 +247,6 @@
             cursor: not-allowed;
         }
         
-        .source-viewer {
-            width: 40%;
-            background-color: white;
-            margin: 1rem 1rem 1rem 0;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            display: none;
-            flex-direction: column;
-        }
-        
-        .source-viewer.active {
-            display: flex;
-        }
-        
-        .source-header {
-            padding: 1rem;
-            border-bottom: 1px solid #ecf0f1;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .source-title {
-            font-weight: 600;
-            color: #2c3e50;
-        }
-        
-        .close-source {
-            background: none;
-            border: none;
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: #7f8c8d;
-        }
-        
-        .source-content {
-            flex: 1;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .source-tabs {
-            display: flex;
-            border-bottom: 1px solid #ecf0f1;
-        }
-        
-        .source-tab {
-            padding: 0.75rem 1.5rem;
-            background: none;
-            border: none;
-            cursor: pointer;
-            color: #7f8c8d;
-            font-size: 14px;
-            border-bottom: 2px solid transparent;
-        }
-        
-        .source-tab.active {
-            color: #3498db;
-            border-bottom-color: #3498db;
-        }
-        
-        .source-tab:hover {
-            color: #2c3e50;
-        }
-        
-        .tab-content {
-            flex: 1;
-            display: none;
-            overflow-y: auto;
-        }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
-        .source-text {
-            padding: 1rem;
-            line-height: 1.6;
-        }
-        
-        .source-iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-        
-        .source-actions {
-            padding: 1rem;
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-            background-color: #f8f9fa;
-            border-top: 1px solid #ecf0f1;
-        }
-        
-        .source-url {
-            flex: 1;
-            color: #7f8c8d;
-            font-size: 0.85rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        
-        .open-external {
-            background-color: #3498db;
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            white-space: nowrap;
-        }
-        
-        .open-external:hover {
-            background-color: #2980b9;
-        }
-        
         .error-message {
             background-color: #e74c3c;
             color: white;
@@ -401,37 +281,19 @@
                 <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
             </div>
         </div>
-        
-        <div class="source-viewer" id="sourceViewer">
-            <div class="source-header">
-                <div class="source-title" id="sourceTitle">Source</div>
-                <button class="close-source" onclick="closeSourceViewer()">&times;</button>
-            </div>
-            <div class="source-content">
-                <div class="source-tabs">
-                    <button class="source-tab active" onclick="switchTab('text')">Text Content</button>
-                    <button class="source-tab" onclick="switchTab('preview')">Web Preview</button>
-                </div>
-                <div class="tab-content active" id="textTab">
-                    <div class="source-text" id="sourceText">Loading...</div>
-                </div>
-                <div class="tab-content" id="previewTab">
-                    <iframe class="source-iframe" id="sourceIframe" sandbox="allow-scripts allow-same-origin"></iframe>
-                </div>
-            </div>
-            <div class="source-actions">
-                <span class="source-url" id="sourceUrl"></span>
-                <button class="open-external" id="openExternalBtn" onclick="openInBrowser()">Open in Browser</button>
-            </div>
-        </div>
     </div>
     
     <script>
         let ws = null;
         let isConnected = false;
         
-        // Configure marked.js globally
+        // Configure marked.js globally to open links in new tabs
+        const markedRenderer = new marked.Renderer();
+        markedRenderer.link = function(href, title, text) {
+            return `<a href="${href}" target="_blank" rel="noopener noreferrer" title="${title || ''}">${text}</a>`;
+        };
         marked.setOptions({
+            renderer: markedRenderer,
             breaks: true, // Enable line breaks
             gfm: true // GitHub flavored markdown
         });
@@ -559,7 +421,7 @@
                             sourceLink.style.textDecoration = 'none';
                             sourceLink.onclick = (e) => {
                                 e.preventDefault();
-                                viewSource(source.url);
+                                window.open(source.url, '_blank');
                             };
                             sourceLink.onmouseover = () => {
                                 sourceLink.style.textDecoration = 'underline';
@@ -632,90 +494,6 @@
             if (event.key === 'Enter') {
                 sendMessage();
             }
-        }
-        
-        let currentSourceUrl = '';
-        
-        async function viewSource(url) {
-            console.log('Opening source:', url);
-            const viewer = document.getElementById('sourceViewer');
-            const titleEl = document.getElementById('sourceTitle');
-            const textEl = document.getElementById('sourceText');
-            const urlEl = document.getElementById('sourceUrl');
-            const iframeEl = document.getElementById('sourceIframe');
-            
-            currentSourceUrl = url;
-            
-            // Show viewer
-            viewer.classList.add('active');
-            
-            // Reset to text tab
-            switchTab('text');
-            
-            // Update URL display
-            urlEl.textContent = url;
-            
-            // Set loading state
-            textEl.innerHTML = '<p>Loading content...</p>';
-            titleEl.textContent = 'Loading...';
-            
-            // Load source
-            try {
-                // Encode the URL for the API call
-                const response = await fetch(`/api/source/${encodeURIComponent(url)}`);
-                if (!response.ok) {
-                    const errorData = await response.text();
-                    console.error('Source fetch error:', errorData);
-                    throw new Error(`HTTP ${response.status}: ${errorData}`);
-                }
-                const data = await response.json();
-                
-                titleEl.textContent = data.title || 'Source';
-                textEl.innerHTML = marked.parse(data.content || 'No content available');
-                
-                // Clear iframe when switching sources
-                iframeEl.src = 'about:blank';
-            } catch (error) {
-                console.error('Error loading source:', error);
-                textEl.innerHTML = `<p>Error loading source: ${error.message}</p>`;
-                titleEl.textContent = 'Error';
-            }
-        }
-        
-        function switchTab(tab) {
-            const textTab = document.getElementById('textTab');
-            const previewTab = document.getElementById('previewTab');
-            const textBtn = document.querySelector('.source-tab:nth-child(1)');
-            const previewBtn = document.querySelector('.source-tab:nth-child(2)');
-            const iframeEl = document.getElementById('sourceIframe');
-            
-            if (tab === 'text') {
-                textTab.classList.add('active');
-                previewTab.classList.remove('active');
-                textBtn.classList.add('active');
-                previewBtn.classList.remove('active');
-            } else {
-                textTab.classList.remove('active');
-                previewTab.classList.add('active');
-                textBtn.classList.remove('active');
-                previewBtn.classList.add('active');
-                
-                // Load iframe on first preview using proxy
-                if (iframeEl.src === '' && currentSourceUrl) {
-                    // Use proxy endpoint to handle SSL issues
-                    iframeEl.src = `/api/proxy/${encodeURIComponent(currentSourceUrl)}`;
-                }
-            }
-        }
-        
-        function openInBrowser() {
-            if (currentSourceUrl) {
-                window.open(currentSourceUrl, '_blank');
-            }
-        }
-        
-        function closeSourceViewer() {
-            document.getElementById('sourceViewer').classList.remove('active');
         }
         
         function clearSession() {
