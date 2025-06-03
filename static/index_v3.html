@@ -374,6 +374,7 @@
         let sessionId = 'session_' + Date.now();
         let urlIndex = {}; // Maps index numbers to URLs
         let streamBuffer = ""; // Buffer for streaming content
+        let pendingRelevantLinks = []; // Links identified during research
         
         // DOM elements
         const messages = document.getElementById('messages');
@@ -439,6 +440,9 @@
                 case 'status':
                     addMessage('status', message.data.message);
                     break;
+                case 'research_step':
+                    handleResearchStep(message.data);
+                    break;
                 case 'stream_chunk':
                     handleStreamChunk(message.data.content);
                     break;
@@ -451,6 +455,39 @@
                 case 'error':
                     addMessage('assistant', 'Error: ' + message.data.message);
                     sendButton.disabled = false;
+                    break;
+            }
+        }
+        
+        // Handle research step updates
+        function handleResearchStep(data) {
+            const step = data.step;
+            const message = data.message;
+            
+            switch (step) {
+                case 'analyzing':
+                    addMessage('status', '🔍 ' + message);
+                    break;
+                case 'searching':
+                    addMessage('status', `🌐 ${message}`);
+                    if (data.query) {
+                        addMessage('status', `Query: "${data.query}"`);
+                    }
+                    break;
+                case 'evaluating':
+                    addMessage('status', '📊 ' + message);
+                    break;
+                case 'fetching':
+                    addMessage('status', '📄 ' + message);
+                    break;
+                case 'generating':
+                    addMessage('status', '✍️ ' + message);
+                    break;
+                case 'complete':
+                    // Don't show completion message, just handle the links
+                    if (data.relevant_links) {
+                        pendingRelevantLinks = data.relevant_links;
+                    }
                     break;
             }
         }
@@ -539,14 +576,15 @@
         
         // Handle chat response
         function handleChatResponse(data) {
+            // Use relevant links from research process, fallback to data.sources
+            const sourcesToUse = pendingRelevantLinks.length > 0 ? pendingRelevantLinks : (data.sources || []);
+            
             // Update URL index with sources
-            if (data.sources && data.sources.length > 0) {
-                data.sources.forEach(source => {
-                    if (source.index) {
-                        urlIndex[source.index] = source.url;
-                    }
-                });
-            }
+            sourcesToUse.forEach(source => {
+                if (source.index) {
+                    urlIndex[source.index] = source.url;
+                }
+            });
             
             if (currentStreamingMessage) {
                 // Re-process the final content with all URLs available
@@ -554,22 +592,30 @@
                 const finalContent = processLinkIndexes(streamBuffer);
                 contentDiv.innerHTML = finalContent;
                 
-                // Add sources list
-                if (data.sources && data.sources.length > 0) {
+                // Add relevant sources list at the bottom
+                if (sourcesToUse.length > 0) {
                     const sourcesDiv = document.createElement('div');
                     sourcesDiv.className = 'sources-list';
-                    sourcesDiv.innerHTML = '<strong>Sources:</strong>';
+                    sourcesDiv.innerHTML = '<strong>Relevant Sources:</strong>';
                     
-                    data.sources.forEach(source => {
+                    sourcesToUse.forEach(source => {
                         const sourceItem = document.createElement('div');
                         sourceItem.className = 'source-item';
                         sourceItem.onclick = () => window.open(source.url, '_blank');
                         
-                        sourceItem.innerHTML = `
+                        let itemContent = `
                             <div class="source-title">${escapeHtml(source.title)}</div>
                             <div class="source-snippet">${escapeHtml(source.snippet)}</div>
                         `;
                         
+                        // Add relevance info if available
+                        if (source.score) {
+                            itemContent += `<div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+                                Relevance: ${source.score}/10 - ${escapeHtml(source.reason || '')}
+                            </div>`;
+                        }
+                        
+                        sourceItem.innerHTML = itemContent;
                         sourcesDiv.appendChild(sourceItem);
                     });
                     
@@ -578,10 +624,11 @@
                 
                 currentStreamingMessage = null; // End streaming
                 streamBuffer = ""; // Clear buffer
+                pendingRelevantLinks = []; // Clear pending links
             } else {
                 // Fallback for non-streaming responses
                 const processedResponse = processLinkIndexes(data.response);
-                addMessage('assistant', processedResponse, data.sources);
+                addMessage('assistant', processedResponse, sourcesToUse);
             }
             
             sendButton.disabled = false;

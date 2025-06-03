@@ -279,20 +279,29 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 agent = agents[session_id]
                 
-                # Send status callback with streaming support
-                async def status_callback(status: str):
-                    if status.startswith("stream_chunk:"):
+                # Send status callback with multi-step support
+                async def status_callback(step_type: str, data: Dict[str, Any] = None):
+                    if step_type == "stream_chunk":
                         # Send streaming chunk
-                        content = status[13:]  # Remove "stream_chunk:" prefix
                         await websocket.send_json({
                             "type": "stream_chunk",
-                            "data": {"content": content}
+                            "data": data
+                        })
+                    elif step_type.startswith("step:"):
+                        # Research step update
+                        step_name = step_type[5:]  # Remove "step:" prefix
+                        await websocket.send_json({
+                            "type": "research_step",
+                            "data": {
+                                "step": step_name,
+                                **data
+                            }
                         })
                     else:
                         # Regular status message
                         await websocket.send_json({
-                            "type": "status",
-                            "data": {"message": status}
+                            "type": "status", 
+                            "data": {"message": step_type}
                         })
                 
                 # Process message

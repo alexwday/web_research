@@ -324,117 +324,166 @@ class ResearchAgentV2:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
     
     async def process_message(self, user_message: str, status_callback=None) -> Dict[str, Any]:
-        """Process a user message and return response with sources"""
+        """Process a user message with multi-step research workflow"""
         try:
-            messages = [
-                {
-                    "role": "system",
-                    "content": """You are a helpful research assistant with access to web search and browsing capabilities. When answering questions:
-1. Search for relevant information if needed
-2. Fetch detailed content from promising sources  
-3. Take notes on important findings with source URLs
-4. Provide comprehensive answers with index-based citations
-5. Use LINK_INDEX format: LINK_INDEX:1, LINK_INDEX:2, etc. for citations
-6. NEVER write full URLs in your response - only use LINK_INDEX numbers
-7. Keep responses concise and focused
-8. The system will automatically convert LINK_INDEX numbers to clickable links
-
-Example: "According to recent data LINK_INDEX:1, AI adoption is growing rapidly LINK_INDEX:2."
-
-You have access to advanced web scraping that can handle JavaScript-heavy sites and bypass most restrictions."""
-                },
-                {"role": "user", "content": user_message}
-            ]
+            # Step 1: Agent analyzes the question and determines research strategy
+            if status_callback:
+                await status_callback("step:analyzing", {"message": "Analyzing your question..."})
             
-            # Get response with tools
-            response = self.client.chat.completions.create(
+            analysis_response = self.client.chat.completions.create(
                 model=MODEL_NAME,
-                messages=messages,
-                tools=self.get_tools(),
-                max_tokens=MAX_TOKENS,
-                stream=False  # Don't stream initial tool call response
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": """You are a research strategist. Analyze the user's question and determine:
+1. What search queries would be most effective
+2. Whether web search is needed
+3. What type of information to look for
+
+Respond with a brief analysis and suggested search queries."""
+                    },
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=500
             )
             
-            # Process tool calls
-            tool_calls_info = []
-            if response.choices[0].message.tool_calls:
-                for tool_call in response.choices[0].message.tool_calls:
-                    function_name = tool_call.function.name
-                    arguments = json.loads(tool_call.function.arguments)
-                    
-                    if status_callback:
-                        await status_callback(f"Executing {function_name}...")
-                    
-                    # Execute tool
-                    tool_result = await self.execute_tool(function_name, arguments)
-                    tool_calls_info.append({
-                        'tool': function_name,
-                        'arguments': arguments,
-                        'result': tool_result
-                    })
-                    
-                    # Add tool result to messages
-                    messages.append(response.choices[0].message)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(tool_result)
-                    })
+            analysis = analysis_response.choices[0].message.content
+            
+            # Step 2: Execute research if needed
+            search_results = []
+            if "search" in analysis.lower() or "web" in analysis.lower():
+                # Extract search query from analysis or use original question
+                search_query = user_message  # Simplified for now
                 
-                # Get final response after tool use with streaming
                 if status_callback:
-                    await status_callback("Generating response...")
+                    await status_callback("step:searching", {
+                        "message": f"Searching the web...",
+                        "query": search_query
+                    })
                 
-                final_response = self.client.chat.completions.create(
+                # Perform search
+                search_result = await self.search_web(search_query)
+                if search_result.get('success'):
+                    search_results = search_result.get('results', [])
+            
+            # Step 3: Evaluate and flag relevant links
+            relevant_links = []
+            if search_results:
+                if status_callback:
+                    await status_callback("step:evaluating", {"message": "Evaluating search results..."})
+                
+                # Let AI evaluate which links are most relevant
+                evaluation_prompt = f"""
+Based on the search results below, identify the 3 most relevant sources for answering: "{user_message}"
+
+Search Results:
+{json.dumps(search_results[:5], indent=2)}
+
+For each relevant source, provide:
+1. URL index number
+2. Relevance score (1-10)
+3. Brief explanation of why it's relevant
+
+Respond in JSON format:
+{{"relevant_sources": [{{"index": 1, "score": 9, "reason": "explanation"}}]}}
+"""
+                
+                eval_response = self.client.chat.completions.create(
                     model=MODEL_NAME,
-                    messages=messages,
-                    max_tokens=MAX_TOKENS,
-                    stream=True
+                    messages=[{"role": "user", "content": evaluation_prompt}],
+                    max_tokens=1000
                 )
                 
-                response_text = ""
-                for chunk in final_response:
-                    if chunk.choices[0].delta.content:
-                        content = chunk.choices[0].delta.content
-                        response_text += content
-                        if status_callback:
-                            # Use asyncio.create_task to handle the async callback
-                            asyncio.create_task(status_callback(f"stream_chunk:{content}"))
-            else:
-                response_text = response.choices[0].message.content
+                try:
+                    eval_data = json.loads(eval_response.choices[0].message.content)
+                    relevant_sources = eval_data.get('relevant_sources', [])
+                    
+                    # Flag relevant links and optionally fetch their content
+                    for source_info in relevant_sources:
+                        index = source_info.get('index')
+                        if index and index <= len(search_results):
+                            result = search_results[index - 1]
+                            relevant_links.append({
+                                'url': result['url'],
+                                'title': result['title'],
+                                'snippet': result['snippet'],
+                                'index': result['index'],
+                                'score': source_info.get('score', 5),
+                                'reason': source_info.get('reason', 'Relevant to query')
+                            })
+                            
+                            # Optionally fetch content for high-scoring sources
+                            if source_info.get('score', 0) >= 8:
+                                if status_callback:
+                                    await status_callback("step:fetching", {
+                                        "message": f"Fetching content from {result['title']}..."
+                                    })
+                                await self.fetch_page_content(result['url'])
+                                
+                except json.JSONDecodeError:
+                    # Fallback: use top 3 search results
+                    relevant_links = search_results[:3]
             
-            # Extract citations and create source list
-            citation_pattern = r'\[(\d+)\]'
-            citations = list(set(re.findall(citation_pattern, response_text)))
+            # Step 4: Generate final streaming response
+            if status_callback:
+                await status_callback("step:generating", {"message": "Generating response..."})
             
-            # Map citations to sources
-            source_list = []
-            for i, note in enumerate(self.notes):
-                if note.source_url and note.source_url in self.sources:
-                    source_data = self.sources[note.source_url]
-                    source_list.append({
-                        'citation': f"[{i+1}]",
-                        'url': note.source_url,
-                        'title': source_data.get('title', 'Unknown'),
-                        'snippet': source_data.get('snippet', source_data.get('content', '')[:200] + '...')
-                    })
+            # Build context for final response
+            context_messages = [
+                {
+                    "role": "system",
+                    "content": """You are a helpful research assistant. Based on the search results and analysis, provide a comprehensive answer to the user's question.
+
+IMPORTANT CITATION RULES:
+- Use LINK_INDEX:N format for citations (e.g., LINK_INDEX:1, LINK_INDEX:2)
+- NEVER write full URLs in your response
+- Reference the most relevant sources identified in the research
+- Keep responses focused and well-structured
+- The system will convert LINK_INDEX references to clickable links
+
+Available sources will be provided with their index numbers."""
+                },
+                {"role": "user", "content": f"Question: {user_message}"},
+                {
+                    "role": "assistant", 
+                    "content": f"Research Analysis: {analysis}"
+                },
+                {
+                    "role": "user",
+                    "content": f"Relevant Sources Found:\n{json.dumps(relevant_links, indent=2)}\n\nPlease provide a comprehensive answer using LINK_INDEX citations."
+                }
+            ]
             
-            # Also include sources that were recently fetched but not yet noted
-            for url, source_data in list(self.sources.items())[-5:]:  # Last 5 sources
-                if not any(s['url'] == url for s in source_list):
-                    source_list.append({
-                        'url': url,
-                        'title': source_data.get('title', 'Unknown'),
-                        'snippet': source_data.get('snippet', source_data.get('content', '')[:200] + '...'),
-                        'index': source_data.get('index', self.get_url_index(url))
-                    })
+            # Stream the final response
+            final_response = self.client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=context_messages,
+                max_tokens=MAX_TOKENS,
+                stream=True
+            )
+            
+            response_text = ""
+            for chunk in final_response:
+                if chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    response_text += content
+                    if status_callback:
+                        asyncio.create_task(status_callback("stream_chunk", {"content": content}))
+            
+            # Step 5: Finalize with relevant links
+            if status_callback:
+                await status_callback("step:complete", {
+                    "message": "Research complete",
+                    "relevant_links": relevant_links
+                })
             
             return {
                 'success': True,
                 'response': response_text,
-                'sources': source_list,
-                'notes_count': len(self.notes),
-                'tool_calls': tool_calls_info
+                'sources': relevant_links,
+                'analysis': analysis,
+                'search_query': search_query if 'search_query' in locals() else None,
+                'notes_count': len(self.notes)
             }
             
         except Exception as e:
