@@ -322,43 +322,34 @@ class ResearchAgentV2:
     async def process_message(self, user_message: str, status_callback=None) -> Dict[str, Any]:
         """Process a user message and return response with sources"""
         try:
-            # Add user message to history
-            self.conversation_history.append({
-                "role": "user",
-                "content": user_message
-            })
-            
             messages = [
                 {
                     "role": "system",
                     "content": """You are a helpful research assistant with access to web search and browsing capabilities. When answering questions:
 1. Search for relevant information if needed
 2. Fetch detailed content from promising sources
-3. Take notes on important findings
-4. Provide comprehensive answers based on the information found
-5. Always cite your sources
+3. Take notes on important findings with source URLs
+4. Provide comprehensive answers with citations
+5. Format citations as [1], [2], etc. in your response
+6. Always cite your sources when using web information
 
 You have access to advanced web scraping that can handle JavaScript-heavy sites and bypass most restrictions."""
-                }
-            ] + self.conversation_history[-10:]  # Keep last 10 messages for context
+                },
+                {"role": "user", "content": user_message}
+            ]
             
             # Get response with tools
             response = self.client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
                 tools=self.get_tools(),
-                tool_choice="auto",
                 max_tokens=MAX_TOKENS
             )
             
-            assistant_message = response.choices[0].message
-            tool_calls = assistant_message.tool_calls
-            
-            # Handle tool calls
-            if tool_calls:
-                messages.append(assistant_message)
-                
-                for tool_call in tool_calls:
+            # Process tool calls
+            tool_calls_info = []
+            if response.choices[0].message.tool_calls:
+                for tool_call in response.choices[0].message.tool_calls:
                     function_name = tool_call.function.name
                     arguments = json.loads(tool_call.function.arguments)
                     
@@ -367,37 +358,51 @@ You have access to advanced web scraping that can handle JavaScript-heavy sites 
                     
                     # Execute tool
                     tool_result = await self.execute_tool(function_name, arguments)
+                    tool_calls_info.append({
+                        'tool': function_name,
+                        'arguments': arguments,
+                        'result': tool_result
+                    })
                     
                     # Add tool result to messages
+                    messages.append(response.choices[0].message)
                     messages.append({
                         "role": "tool",
-                        "content": json.dumps(tool_result),
-                        "tool_call_id": tool_call.id
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(tool_result)
                     })
                 
-                # Get final response
+                # Get final response after tool use
                 final_response = self.client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=messages,
                     max_tokens=MAX_TOKENS
                 )
                 
-                assistant_reply = final_response.choices[0].message.content
+                response_text = final_response.choices[0].message.content
             else:
-                assistant_reply = assistant_message.content
+                response_text = response.choices[0].message.content
             
-            # Add assistant message to history
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": assistant_reply
-            })
+            # Extract citations and create source list
+            citation_pattern = r'\[(\d+)\]'
+            citations = list(set(re.findall(citation_pattern, response_text)))
             
-            # Extract sources from the conversation
-            used_sources = []
-            for url, source_data in self.sources.items():
-                # Check if URL was mentioned in the response
-                if url in assistant_reply or source_data.get('title', '') in assistant_reply:
-                    used_sources.append({
+            # Map citations to sources
+            source_list = []
+            for i, note in enumerate(self.notes):
+                if note.source_url and note.source_url in self.sources:
+                    source_data = self.sources[note.source_url]
+                    source_list.append({
+                        'citation': f"[{i+1}]",
+                        'url': note.source_url,
+                        'title': source_data.get('title', 'Unknown'),
+                        'snippet': source_data.get('snippet', source_data.get('content', '')[:200] + '...')
+                    })
+            
+            # Also include sources that were recently fetched but not yet noted
+            for url, source_data in list(self.sources.items())[-5:]:  # Last 5 sources
+                if not any(s['url'] == url for s in source_list):
+                    source_list.append({
                         'url': url,
                         'title': source_data.get('title', 'Unknown'),
                         'snippet': source_data.get('snippet', source_data.get('content', '')[:200] + '...')
@@ -405,9 +410,10 @@ You have access to advanced web scraping that can handle JavaScript-heavy sites 
             
             return {
                 'success': True,
-                'response': assistant_reply,
-                'sources': used_sources,
-                'notes_count': len(self.notes)
+                'response': response_text,
+                'sources': source_list,
+                'notes_count': len(self.notes),
+                'tool_calls': tool_calls_info
             }
             
         except Exception as e:
