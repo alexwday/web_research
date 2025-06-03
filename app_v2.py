@@ -188,15 +188,19 @@ class LLMAnalyzer:
             logger.error(f"LLM analysis failed: {e}")
             return f"Analysis failed: {str(e)}"
 
+# Import agent
+from agent_v2 import ResearchAgentV2
+
 # Initialize components
 scraper = WebScraper()
 analyzer = LLMAnalyzer()
+agents = {}  # Store agent instances per session
 
 # API Routes
 @app.get("/")
 async def root():
     """Serve the web interface"""
-    with open("static/index_v2.html", "r") as f:
+    with open("static/index_v3.html", "r") as f:
         return HTMLResponse(content=f.read())
 
 @app.post("/research", response_model=ResearchResponse)
@@ -256,7 +260,47 @@ async def websocket_endpoint(websocket: WebSocket):
             
             message = WebsocketMessage(**data)
             
-            if message.type == "research":
+            if message.type == "chat":
+                # Handle chat messages
+                session_id = message.data.get('session_id', 'default')
+                user_message = message.data.get('message', '')
+                
+                if not user_message:
+                    await websocket.send_json({
+                        "type": "error",
+                        "data": {"message": "Message is required"}
+                    })
+                    continue
+                
+                # Get or create agent
+                if session_id not in agents:
+                    token = await token_manager.get_token()
+                    agents[session_id] = ResearchAgentV2(token)
+                
+                agent = agents[session_id]
+                
+                # Send status callback
+                async def status_callback(status: str):
+                    await websocket.send_json({
+                        "type": "status",
+                        "data": {"message": status}
+                    })
+                
+                # Process message
+                result = await agent.process_message(user_message, status_callback)
+                
+                # Send response
+                await websocket.send_json({
+                    "type": "chat_response",
+                    "data": {
+                        'response': result.get('response', ''),
+                        'sources': result.get('sources', []),
+                        'notes_count': result.get('notes_count', 0),
+                        'session_id': session_id
+                    }
+                })
+                
+            elif message.type == "research":
                 # Send progress updates
                 await websocket.send_json({
                     "type": "status",
@@ -308,6 +352,95 @@ async def websocket_endpoint(websocket: WebSocket):
             "type": "error",
             "data": {"message": str(e)}
         })
+
+@app.post("/api/chat")
+async def chat(request: Dict[str, Any]):
+    """Chat with the research agent"""
+    session_id = request.get('session_id', 'default')
+    message = request.get('message', '')
+    
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+    
+    # Get or create agent for this session
+    if session_id not in agents:
+        token = await token_manager.get_token()
+        agents[session_id] = ResearchAgentV2(token)
+    
+    agent = agents[session_id]
+    
+    # Process message
+    result = await agent.process_message(message)
+    
+    return {
+        'success': result.get('success', False),
+        'response': result.get('response', ''),
+        'sources': result.get('sources', []),
+        'notes_count': result.get('notes_count', 0),
+        'session_id': session_id
+    }
+
+@app.get("/api/preview/{url:path}")
+async def preview_page(url: str):
+    """Preview a webpage using Crawl4AI"""
+    try:
+        # Get any agent instance or create temporary one
+        token = await token_manager.get_token()
+        temp_agent = ResearchAgentV2(token)
+        
+        # Fetch page for preview
+        result = await temp_agent.fetch_page_content(url, for_preview=True)
+        
+        if result['success']:
+            # Return the HTML with injected base tag for proper rendering
+            html = result['html']
+            # Inject base tag to fix relative URLs
+            base_tag = f'<base href="{url}">'
+            if '<head>' in html:
+                html = html.replace('<head>', f'<head>{base_tag}')
+            else:
+                html = f'<head>{base_tag}</head>' + html
+                
+            return HTMLResponse(content=html)
+        else:
+            return HTMLResponse(
+                content=f"<html><body><h1>Error loading page</h1><p>{result.get('error', 'Unknown error')}</p></body></html>",
+                status_code=500
+            )
+    except Exception as e:
+        logger.error(f"Preview error: {e}")
+        return HTMLResponse(
+            content=f"<html><body><h1>Error</h1><p>{str(e)}</p></body></html>",
+            status_code=500
+        )
+    finally:
+        # Clean up temporary agent
+        if 'temp_agent' in locals():
+            await temp_agent.close()
+
+@app.get("/api/sources/{session_id}")
+async def get_sources(session_id: str = 'default'):
+    """Get all sources collected by the agent"""
+    if session_id not in agents:
+        return {'sources': {}}
+    
+    return {'sources': agents[session_id].get_all_sources()}
+
+@app.get("/api/notes/{session_id}")
+async def get_notes(session_id: str = 'default'):
+    """Get all research notes"""
+    if session_id not in agents:
+        return {'notes': []}
+    
+    return {'notes': agents[session_id].get_all_notes()}
+
+@app.post("/api/reset/{session_id}")
+async def reset_conversation(session_id: str = 'default'):
+    """Reset the conversation for a session"""
+    if session_id in agents:
+        result = agents[session_id].reset_conversation()
+        return result
+    return {'success': True, 'message': 'No active session'}
 
 @app.get("/health")
 async def health():
