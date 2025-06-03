@@ -196,7 +196,7 @@ analyzer = LLMAnalyzer()
 @app.get("/")
 async def root():
     """Serve the web interface"""
-    with open("static/index.html", "r") as f:
+    with open("static/index_v2.html", "r") as f:
         return HTMLResponse(content=f.read())
 
 @app.post("/research", response_model=ResearchResponse)
@@ -244,6 +244,16 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Receive message
             data = await websocket.receive_json()
+            
+            # Handle different message formats
+            if 'data' not in data:
+                # Handle simple messages (like chat)
+                await websocket.send_json({
+                    "type": "error",
+                    "data": {"message": "Please use the research form to submit queries"}
+                })
+                continue
+            
             message = WebsocketMessage(**data)
             
             if message.type == "research":
