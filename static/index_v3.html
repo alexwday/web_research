@@ -505,10 +505,15 @@
         }
         
         // Handle WebSocket messages
+        let currentStreamingMessage = null;
+        
         function handleWebSocketMessage(message) {
             switch (message.type) {
                 case 'status':
                     addMessage('status', message.data.message);
+                    break;
+                case 'stream_chunk':
+                    handleStreamChunk(message.data.content);
                     break;
                 case 'chat_response':
                     handleChatResponse(message.data);
@@ -521,6 +526,29 @@
                     sendButton.disabled = false;
                     break;
             }
+        }
+        
+        // Handle streaming chunks
+        function handleStreamChunk(content) {
+            if (!currentStreamingMessage) {
+                // Start new streaming message
+                currentStreamingMessage = addMessage('assistant', '', []);
+                currentStreamingMessage.isStreaming = true;
+            }
+            
+            // Append content to the streaming message
+            const contentDiv = currentStreamingMessage.querySelector('.message-content');
+            const currentText = contentDiv.textContent || '';
+            const newText = currentText + content;
+            
+            // Update with formatted content
+            const formattedContent = newText
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>');
+            
+            contentDiv.innerHTML = formattedContent;
+            messages.scrollTop = messages.scrollHeight;
         }
         
         // Add message to chat
@@ -564,11 +592,41 @@
             messageDiv.appendChild(contentDiv);
             messages.appendChild(messageDiv);
             messages.scrollTop = messages.scrollHeight;
+            
+            return messageDiv; // Return the element for streaming updates
         }
         
         // Handle chat response
         function handleChatResponse(data) {
-            addMessage('assistant', data.response, data.sources);
+            if (currentStreamingMessage) {
+                // Add sources to the streaming message
+                if (data.sources && data.sources.length > 0) {
+                    const contentDiv = currentStreamingMessage.querySelector('.message-content');
+                    const sourcesDiv = document.createElement('div');
+                    sourcesDiv.className = 'sources-list';
+                    sourcesDiv.innerHTML = '<strong>Sources:</strong>';
+                    
+                    data.sources.forEach(source => {
+                        const sourceItem = document.createElement('div');
+                        sourceItem.className = 'source-item';
+                        sourceItem.onclick = () => loadPreview(source.url, source.title);
+                        
+                        sourceItem.innerHTML = `
+                            <div class="source-title">${escapeHtml(source.title)}</div>
+                            <div class="source-snippet">${escapeHtml(source.snippet)}</div>
+                        `;
+                        
+                        sourcesDiv.appendChild(sourceItem);
+                    });
+                    
+                    contentDiv.appendChild(sourcesDiv);
+                }
+                currentStreamingMessage = null; // End streaming
+            } else {
+                // Fallback for non-streaming responses
+                addMessage('assistant', data.response, data.sources);
+            }
+            
             sendButton.disabled = false;
             chatInput.value = '';
             chatInput.focus();

@@ -329,9 +329,10 @@ class ResearchAgentV2:
 1. Search for relevant information if needed
 2. Fetch detailed content from promising sources
 3. Take notes on important findings with source URLs
-4. Provide comprehensive answers with citations
-5. Format citations as [1], [2], etc. in your response
-6. Always cite your sources when using web information
+4. Provide comprehensive answers with brief citations
+5. Use citation format: [1], [2], etc. - DO NOT write full URLs in your response
+6. Keep responses concise and focused - avoid repeating source URLs
+7. Let the system handle displaying clickable sources separately
 
 You have access to advanced web scraping that can handle JavaScript-heavy sites and bypass most restrictions."""
                 },
@@ -343,7 +344,8 @@ You have access to advanced web scraping that can handle JavaScript-heavy sites 
                 model=MODEL_NAME,
                 messages=messages,
                 tools=self.get_tools(),
-                max_tokens=MAX_TOKENS
+                max_tokens=MAX_TOKENS,
+                stream=False  # Don't stream initial tool call response
             )
             
             # Process tool calls
@@ -372,14 +374,25 @@ You have access to advanced web scraping that can handle JavaScript-heavy sites 
                         "content": json.dumps(tool_result)
                     })
                 
-                # Get final response after tool use
+                # Get final response after tool use with streaming
+                if status_callback:
+                    await status_callback("Generating response...")
+                
                 final_response = self.client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=messages,
-                    max_tokens=MAX_TOKENS
+                    max_tokens=MAX_TOKENS,
+                    stream=True
                 )
                 
-                response_text = final_response.choices[0].message.content
+                response_text = ""
+                for chunk in final_response:
+                    if chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        response_text += content
+                        if status_callback:
+                            # Use asyncio.create_task to handle the async callback
+                            asyncio.create_task(status_callback(f"stream_chunk:{content}"))
             else:
                 response_text = response.choices[0].message.content
             

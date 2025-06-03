@@ -279,12 +279,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 agent = agents[session_id]
                 
-                # Send status callback
+                # Send status callback with streaming support
                 async def status_callback(status: str):
-                    await websocket.send_json({
-                        "type": "status",
-                        "data": {"message": status}
-                    })
+                    if status.startswith("stream_chunk:"):
+                        # Send streaming chunk
+                        content = status[13:]  # Remove "stream_chunk:" prefix
+                        await websocket.send_json({
+                            "type": "stream_chunk",
+                            "data": {"content": content}
+                        })
+                    else:
+                        # Regular status message
+                        await websocket.send_json({
+                            "type": "status",
+                            "data": {"message": status}
+                        })
                 
                 # Process message
                 result = await agent.process_message(user_message, status_callback)
@@ -384,18 +393,24 @@ async def chat(request: Dict[str, Any]):
 async def preview_page(url: str):
     """Preview a webpage using Crawl4AI"""
     try:
+        # URL decode the path parameter
+        from urllib.parse import unquote
+        decoded_url = unquote(url)
+        
+        logger.info(f"Preview request for: {decoded_url}")
+        
         # Get any agent instance or create temporary one
         token = await token_manager.get_token()
         temp_agent = ResearchAgentV2(token)
         
         # Fetch page for preview
-        result = await temp_agent.fetch_page_content(url, for_preview=True)
+        result = await temp_agent.fetch_page_content(decoded_url, for_preview=True)
         
         if result['success']:
             # Return the HTML with injected base tag for proper rendering
             html = result['html']
             # Inject base tag to fix relative URLs
-            base_tag = f'<base href="{url}">'
+            base_tag = f'<base href="{decoded_url}">'
             if '<head>' in html:
                 html = html.replace('<head>', f'<head>{base_tag}')
             else:
