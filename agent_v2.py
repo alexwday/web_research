@@ -51,6 +51,8 @@ class ResearchAgentV2:
         self.sources = {}
         self.notes = []
         self.conversation_history = []
+        self.url_index = {}  # Maps URLs to index numbers
+        self.index_counter = 0  # Counter for generating unique indices
         
         # Initialize OpenAI client
         self.client = OpenAI(
@@ -73,6 +75,20 @@ class ResearchAgentV2:
         
         # Cache for web crawler instance
         self._crawler = None
+    
+    def get_url_index(self, url: str) -> int:
+        """Get or create an index for a URL"""
+        if url not in self.url_index:
+            self.index_counter += 1
+            self.url_index[url] = self.index_counter
+        return self.url_index[url]
+    
+    def get_url_by_index(self, index: int) -> Optional[str]:
+        """Get URL by index number"""
+        for url, idx in self.url_index.items():
+            if idx == index:
+                return url
+        return None
     
     async def get_crawler(self):
         """Get or create web crawler instance"""
@@ -136,10 +152,14 @@ class ResearchAgentV2:
                 snippet_elem = result_div.select_one('.result__snippet')
                 snippet = snippet_elem.get_text(strip=True) if snippet_elem else 'No description'
                 
+                # Get URL index
+                url_index = self.get_url_index(url)
+                
                 results.append({
                     'url': url,
                     'title': title,
-                    'snippet': snippet
+                    'snippet': snippet,
+                    'index': url_index
                 })
                 
                 # Store source
@@ -147,7 +167,8 @@ class ResearchAgentV2:
                     'title': title,
                     'snippet': snippet,
                     'timestamp': datetime.now().isoformat(),
-                    'query': query
+                    'query': query,
+                    'index': url_index
                 }
             
             return {
@@ -163,27 +184,17 @@ class ResearchAgentV2:
                 'query': query
             }
     
-    async def fetch_page_content(self, url: str, for_preview: bool = False) -> Dict[str, Any]:
+    async def fetch_page_content(self, url: str) -> Dict[str, Any]:
         """Fetch and parse content from a specific URL using Crawl4AI"""
         try:
             crawler = await self.get_crawler()
             
-            # Different config for preview vs content extraction
-            if for_preview:
-                # For preview, we want the full HTML with styles
-                run_config = CrawlerRunConfig(
-                    cache_mode=CacheMode.BYPASS,
-                    wait_for="css:body",
-                    delay_before_return_html=2.0,
-                    screenshot=True  # Take screenshot for preview
-                )
-            else:
-                # For content extraction, we want clean markdown
-                run_config = CrawlerRunConfig(
-                    cache_mode=CacheMode.BYPASS,
-                    wait_for="css:body",
-                    delay_before_return_html=1.0
-                )
+            # Content extraction configuration
+            run_config = CrawlerRunConfig(
+                cache_mode=CacheMode.BYPASS,
+                wait_for="css:body",
+                delay_before_return_html=1.0
+            )
             
             result = await crawler.arun(url=url, config=run_config)
             
@@ -194,38 +205,31 @@ class ResearchAgentV2:
                     'error': 'Failed to fetch page'
                 }
             
-            # Extract content based on purpose
-            if for_preview:
-                # Return HTML for preview
-                return {
-                    'success': True,
-                    'url': url,
-                    'html': result.html,
-                    'screenshot': result.screenshot if hasattr(result, 'screenshot') else None,
-                    'title': result.metadata.get('title', 'Unknown')
-                }
-            else:
-                # Process for agent consumption
-                content = result.markdown
-                if len(content) > MAX_CONTENT_LENGTH:
-                    content = content[:MAX_CONTENT_LENGTH] + "..."
-                
-                title = result.metadata.get('title', urlparse(url).netloc)
-                
-                # Update source with full content
-                self.sources[url] = {
-                    'title': title,
-                    'content': content,
-                    'timestamp': datetime.now().isoformat(),
-                    'url': url
-                }
-                
-                return {
-                    'success': True,
-                    'url': url,
-                    'title': title,
-                    'content': content
-                }
+            # Process for agent consumption
+            content = result.markdown
+            if len(content) > MAX_CONTENT_LENGTH:
+                content = content[:MAX_CONTENT_LENGTH] + "..."
+            
+            title = result.metadata.get('title', urlparse(url).netloc)
+            
+            # Get URL index
+            url_index = self.get_url_index(url)
+            
+            # Update source with full content
+            self.sources[url] = {
+                'title': title,
+                'content': content,
+                'timestamp': datetime.now().isoformat(),
+                'url': url,
+                'index': url_index
+            }
+            
+            return {
+                'success': True,
+                'url': url,
+                'title': title,
+                'content': content
+            }
                 
         except Exception as e:
             return {
@@ -327,12 +331,15 @@ class ResearchAgentV2:
                     "role": "system",
                     "content": """You are a helpful research assistant with access to web search and browsing capabilities. When answering questions:
 1. Search for relevant information if needed
-2. Fetch detailed content from promising sources
+2. Fetch detailed content from promising sources  
 3. Take notes on important findings with source URLs
-4. Provide comprehensive answers with brief citations
-5. Use citation format: [1], [2], etc. - DO NOT write full URLs in your response
-6. Keep responses concise and focused - avoid repeating source URLs
-7. Let the system handle displaying clickable sources separately
+4. Provide comprehensive answers with index-based citations
+5. Use LINK_INDEX format: LINK_INDEX:1, LINK_INDEX:2, etc. for citations
+6. NEVER write full URLs in your response - only use LINK_INDEX numbers
+7. Keep responses concise and focused
+8. The system will automatically convert LINK_INDEX numbers to clickable links
+
+Example: "According to recent data LINK_INDEX:1, AI adoption is growing rapidly LINK_INDEX:2."
 
 You have access to advanced web scraping that can handle JavaScript-heavy sites and bypass most restrictions."""
                 },
@@ -418,7 +425,8 @@ You have access to advanced web scraping that can handle JavaScript-heavy sites 
                     source_list.append({
                         'url': url,
                         'title': source_data.get('title', 'Unknown'),
-                        'snippet': source_data.get('snippet', source_data.get('content', '')[:200] + '...')
+                        'snippet': source_data.get('snippet', source_data.get('content', '')[:200] + '...'),
+                        'index': source_data.get('index', self.get_url_index(url))
                     })
             
             return {

@@ -389,49 +389,7 @@ async def chat(request: Dict[str, Any]):
         'session_id': session_id
     }
 
-@app.get("/api/preview/{url:path}")
-async def preview_page(url: str):
-    """Preview a webpage using Crawl4AI"""
-    try:
-        # URL decode the path parameter
-        from urllib.parse import unquote
-        decoded_url = unquote(url)
-        
-        logger.info(f"Preview request for: {decoded_url}")
-        
-        # Get any agent instance or create temporary one
-        token = await token_manager.get_token()
-        temp_agent = ResearchAgentV2(token)
-        
-        # Fetch page for preview
-        result = await temp_agent.fetch_page_content(decoded_url, for_preview=True)
-        
-        if result['success']:
-            # Return the HTML with injected base tag for proper rendering
-            html = result['html']
-            # Inject base tag to fix relative URLs
-            base_tag = f'<base href="{decoded_url}">'
-            if '<head>' in html:
-                html = html.replace('<head>', f'<head>{base_tag}')
-            else:
-                html = f'<head>{base_tag}</head>' + html
-                
-            return HTMLResponse(content=html)
-        else:
-            return HTMLResponse(
-                content=f"<html><body><h1>Error loading page</h1><p>{result.get('error', 'Unknown error')}</p></body></html>",
-                status_code=500
-            )
-    except Exception as e:
-        logger.error(f"Preview error: {e}")
-        return HTMLResponse(
-            content=f"<html><body><h1>Error</h1><p>{str(e)}</p></body></html>",
-            status_code=500
-        )
-    finally:
-        # Clean up temporary agent
-        if 'temp_agent' in locals():
-            await temp_agent.close()
+# Preview functionality removed - using simple new tab links instead
 
 @app.get("/api/sources/{session_id}")
 async def get_sources(session_id: str = 'default'):

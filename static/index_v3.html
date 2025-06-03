@@ -66,10 +66,9 @@
             flex: 1;
             display: flex;
             overflow: hidden;
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
             width: 100%;
-            gap: 1rem;
             padding: 1rem;
         }
 
@@ -218,89 +217,33 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
-        /* Preview Panel */
-        .preview-panel {
-            width: 50%;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .preview-header {
-            padding: 1rem;
-            background: #f8f9fa;
-            border-bottom: 1px solid #e0e0e0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .preview-title {
+        /* Link styling for citations */
+        .citation-link {
+            color: #667eea;
+            text-decoration: none;
             font-weight: 600;
-            color: #333;
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            padding: 2px 4px;
+            border-radius: 3px;
+            background: rgba(102, 126, 234, 0.1);
+            transition: background 0.2s;
         }
 
-        .preview-actions {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .preview-actions button {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.85rem;
-        }
-
-        .preview-actions button:hover {
-            background: #5a67d8;
-        }
-
-        .preview-content {
-            flex: 1;
-            overflow: hidden;
-        }
-
-        .preview-iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-
-        .preview-placeholder {
-            padding: 2rem;
-            text-align: center;
-            color: #666;
+        .citation-link:hover {
+            background: rgba(102, 126, 234, 0.2);
+            text-decoration: underline;
         }
 
         /* Mode-specific visibility */
         body.chat-mode .chat-container { display: flex; }
         body.chat-mode .research-container { display: none; }
-        body.chat-mode .preview-panel { display: flex; }
 
         body.research-mode .chat-container { display: none; }
         body.research-mode .research-container { display: flex; }
-        body.research-mode .preview-panel { display: none; }
 
         /* Responsive */
         @media (max-width: 768px) {
             .main-container {
                 flex-direction: column;
-            }
-            
-            .preview-panel {
-                width: 100%;
-                height: 50vh;
             }
             
             .message-content {
@@ -422,29 +365,15 @@
             <div id="researchResults"></div>
         </div>
 
-        <!-- Preview Panel -->
-        <div class="preview-panel" id="previewPanel">
-            <div class="preview-header">
-                <div class="preview-title" id="previewTitle">Click on a source to preview</div>
-                <div class="preview-actions">
-                    <button onclick="openInNewTab()">Open in Browser</button>
-                    <button onclick="closePreview()">Close</button>
-                </div>
-            </div>
-            <div class="preview-content" id="previewContent">
-                <div class="preview-placeholder">
-                    <p>No preview loaded</p>
-                    <p style="margin-top: 1rem; font-size: 0.9rem;">Click on any source link to preview it here</p>
-                </div>
-            </div>
-        </div>
+        <!-- Preview panel removed - using new tab links instead -->
     </div>
 
     <script>
         // WebSocket connection
         let ws = null;
         let sessionId = 'session_' + Date.now();
-        let currentPreviewUrl = null;
+        let urlIndex = {}; // Maps index numbers to URLs
+        let streamBuffer = ""; // Buffer for streaming content
         
         // DOM elements
         const messages = document.getElementById('messages');
@@ -453,9 +382,7 @@
         const connectionStatus = document.getElementById('connectionStatus');
         const chatModeBtn = document.getElementById('chatModeBtn');
         const researchModeBtn = document.getElementById('researchModeBtn');
-        const previewPanel = document.getElementById('previewPanel');
-        const previewContent = document.getElementById('previewContent');
-        const previewTitle = document.getElementById('previewTitle');
+        // Preview elements removed
         
         // Mode switching
         chatModeBtn.addEventListener('click', () => {
@@ -534,21 +461,39 @@
                 // Start new streaming message
                 currentStreamingMessage = addMessage('assistant', '', []);
                 currentStreamingMessage.isStreaming = true;
+                streamBuffer = "";
             }
             
-            // Append content to the streaming message
-            const contentDiv = currentStreamingMessage.querySelector('.message-content');
-            const currentText = contentDiv.textContent || '';
-            const newText = currentText + content;
+            // Add to buffer
+            streamBuffer += content;
             
-            // Update with formatted content
-            const formattedContent = newText
+            // Process buffer and replace links
+            const processedContent = processLinkIndexes(streamBuffer);
+            
+            // Update the streaming message
+            const contentDiv = currentStreamingMessage.querySelector('.message-content');
+            contentDiv.innerHTML = processedContent;
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        // Process LINK_INDEX patterns and replace with clickable links
+        function processLinkIndexes(text) {
+            // Format basic markdown
+            let formatted = text
                 .replace(/\n/g, '<br>')
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*(.*?)\*/g, '<em>$1</em>');
             
-            contentDiv.innerHTML = formattedContent;
-            messages.scrollTop = messages.scrollHeight;
+            // Replace LINK_INDEX:number with clickable links
+            formatted = formatted.replace(/LINK_INDEX:(\d+)/g, (match, indexNum) => {
+                const url = urlIndex[indexNum];
+                if (url) {
+                    return `<a href="${url}" target="_blank" class="citation-link">[${indexNum}]</a>`;
+                }
+                return `<span class="citation-link">[${indexNum}]</span>`; // Fallback if URL not found yet
+            });
+            
+            return formatted;
         }
         
         // Add message to chat
@@ -559,12 +504,8 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
             
-            // Convert markdown-like formatting
-            const formattedContent = content
-                .replace(/\n/g, '<br>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>');
-            
+            // Process content with link replacement
+            const formattedContent = processLinkIndexes(content);
             contentDiv.innerHTML = formattedContent;
             
             // Add sources if available
@@ -576,7 +517,7 @@
                 sources.forEach(source => {
                     const sourceItem = document.createElement('div');
                     sourceItem.className = 'source-item';
-                    sourceItem.onclick = () => loadPreview(source.url, source.title);
+                    sourceItem.onclick = () => window.open(source.url, '_blank');
                     
                     sourceItem.innerHTML = `
                         <div class="source-title">${escapeHtml(source.title)}</div>
@@ -598,10 +539,23 @@
         
         // Handle chat response
         function handleChatResponse(data) {
+            // Update URL index with sources
+            if (data.sources && data.sources.length > 0) {
+                data.sources.forEach(source => {
+                    if (source.index) {
+                        urlIndex[source.index] = source.url;
+                    }
+                });
+            }
+            
             if (currentStreamingMessage) {
-                // Add sources to the streaming message
+                // Re-process the final content with all URLs available
+                const contentDiv = currentStreamingMessage.querySelector('.message-content');
+                const finalContent = processLinkIndexes(streamBuffer);
+                contentDiv.innerHTML = finalContent;
+                
+                // Add sources list
                 if (data.sources && data.sources.length > 0) {
-                    const contentDiv = currentStreamingMessage.querySelector('.message-content');
                     const sourcesDiv = document.createElement('div');
                     sourcesDiv.className = 'sources-list';
                     sourcesDiv.innerHTML = '<strong>Sources:</strong>';
@@ -609,7 +563,7 @@
                     data.sources.forEach(source => {
                         const sourceItem = document.createElement('div');
                         sourceItem.className = 'source-item';
-                        sourceItem.onclick = () => loadPreview(source.url, source.title);
+                        sourceItem.onclick = () => window.open(source.url, '_blank');
                         
                         sourceItem.innerHTML = `
                             <div class="source-title">${escapeHtml(source.title)}</div>
@@ -621,10 +575,13 @@
                     
                     contentDiv.appendChild(sourcesDiv);
                 }
+                
                 currentStreamingMessage = null; // End streaming
+                streamBuffer = ""; // Clear buffer
             } else {
                 // Fallback for non-streaming responses
-                addMessage('assistant', data.response, data.sources);
+                const processedResponse = processLinkIndexes(data.response);
+                addMessage('assistant', processedResponse, data.sources);
             }
             
             sendButton.disabled = false;
@@ -660,45 +617,7 @@
             }));
         }
         
-        // Load preview
-        function loadPreview(url, title) {
-            currentPreviewUrl = url;
-            previewTitle.textContent = title || url;
-            
-            // Show loading state
-            previewContent.innerHTML = '<div class="preview-placeholder">Loading preview...</div>';
-            
-            // Load preview using iframe with our preview endpoint
-            const iframe = document.createElement('iframe');
-            iframe.className = 'preview-iframe';
-            iframe.src = `/api/preview/${encodeURIComponent(url)}`;
-            iframe.onload = () => {
-                previewContent.innerHTML = '';
-                previewContent.appendChild(iframe);
-            };
-            iframe.onerror = () => {
-                previewContent.innerHTML = '<div class="preview-placeholder">Failed to load preview</div>';
-            };
-        }
-        
-        // Open in new tab
-        function openInNewTab() {
-            if (currentPreviewUrl) {
-                window.open(currentPreviewUrl, '_blank');
-            }
-        }
-        
-        // Close preview
-        function closePreview() {
-            previewContent.innerHTML = `
-                <div class="preview-placeholder">
-                    <p>No preview loaded</p>
-                    <p style="margin-top: 1rem; font-size: 0.9rem;">Click on any source link to preview it here</p>
-                </div>
-            `;
-            previewTitle.textContent = 'Click on a source to preview';
-            currentPreviewUrl = null;
-        }
+        // Preview functions removed - using new tab links instead
         
         // Escape HTML
         function escapeHtml(text) {
