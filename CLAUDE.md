@@ -14,6 +14,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Running the Application
+```bash
+# Start the web research application
+python run_app.py
+# Access at http://localhost:8000
+```
+
 ### Running Tests
 ```bash
 # Test web connectivity with SSL handling
@@ -46,10 +53,30 @@ This is a web research framework that combines web scraping capabilities with LL
 
 ### Configuration Requirements
 
-Before running tests, update the CONFIG section in `test_cohere_complete.py`:
+Before running the application, update `config.py`:
 - `OAUTH_URL`: OAuth token endpoint
 - `OAUTH_CLIENT_ID`: OAuth client ID
 - `OAUTH_CLIENT_SECRET`: OAuth client secret  
 - `BASE_URL`: API base URL for OpenAI-compatible endpoint
 
 SSL certificate (`rbc-ca-bundle.cer`) must be placed in `ssl_certs/` folder.
+
+## File Structure
+
+```
+web_research/
+├── ssl_certs/
+│   ├── README.md
+│   └── rbc-ca-bundle.cer          # Your SSL certificate
+├── static/
+│   └── index.html                 # Web UI
+├── agent.py                       # Research agent with tool calling
+├── app.py                         # FastAPI web application  
+├── run_app.py                     # Application launcher
+├── config.py                      # Configuration settings
+├── test_web_connectivity.py       # Web access test
+├── test_cohere_complete.py        # Complete LLM integration test
+├── requirements.txt               # Dependencies
+├── CLAUDE.md                      # This file
+└── README.md                      # Project documentation
+```
