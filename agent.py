@@ -548,9 +548,9 @@ class ResearchAgent:
                     "content": """You are a helpful research assistant. When answering questions:
 1. Search for relevant information if needed
 2. Provide comprehensive answers based on the information found
-3. IMPORTANT: Do not include any URLs or links in your response text - sources will be provided separately in a dedicated section
+3. When citing sources, you may mention them by name but avoid including full URLs
 4. Focus on synthesizing the information to answer the user's question thoroughly
-5. Do not use markdown link syntax like [text](url) - just mention the source by name if needed"""
+5. Sources will be provided separately for users to explore"""
                 },
                 {"role": "user", "content": user_message}
             ]
