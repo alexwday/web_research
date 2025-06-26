@@ -374,6 +374,59 @@ class ResearchAgent:
                 'error': str(e)
             }
     
+    def decompose_query(self, complex_query: str, num_searches: int = 5) -> Dict[str, Any]:
+        """Break down a complex query into multiple specific searches"""
+        try:
+            decomposition_prompt = f"""
+Break down this complex research query into {num_searches} specific, focused search queries that would help answer the original question comprehensively.
+
+Original query: "{complex_query}"
+
+For each search query, provide:
+1. A specific search term/phrase that would find relevant information
+2. A brief reason why this search is needed
+
+Return a JSON array of objects with "query" and "reason" fields.
+
+Example format:
+[
+  {{"query": "TD Bank Q3 2024 net income earnings", "reason": "Get specific financial data for TD Bank"}},
+  {{"query": "RBC Royal Bank quarterly earnings Q3 2024", "reason": "Get RBC's latest quarterly results"}}
+]
+"""
+            
+            # Use the LLM to decompose the query
+            messages = [{"role": "user", "content": decomposition_prompt}]
+            response = self.client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.1  # Low temperature for consistent decomposition
+            )
+            
+            # Parse the JSON response
+            import json
+            try:
+                search_queries = json.loads(response.choices[0].message.content.strip())
+                return {
+                    'success': True,
+                    'original_query': complex_query,
+                    'search_queries': search_queries,
+                    'count': len(search_queries)
+                }
+            except json.JSONDecodeError as e:
+                return {
+                    'success': False,
+                    'error': f"Failed to parse decomposition response: {e}",
+                    'raw_response': response.choices[0].message.content
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Query decomposition failed: {str(e)}"
+            }
+    
     def take_note(self, content: str, source_url: Optional[str] = None) -> Dict[str, Any]:
         """Store a research note"""
         note = ResearchNote(content, source_url)
@@ -388,6 +441,28 @@ class ResearchAgent:
     def get_tools(self) -> List[Dict[str, Any]]:
         """Return tool definitions for the LLM"""
         return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "decompose_query",
+                    "description": "Break down a complex research question into multiple specific searches for comprehensive coverage",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "complex_query": {
+                                "type": "string",
+                                "description": "The complex query to break down into multiple searches"
+                            },
+                            "num_searches": {
+                                "type": "integer",
+                                "description": "Number of specific searches to create (default: 5)",
+                                "default": 5
+                            }
+                        },
+                        "required": ["complex_query"]
+                    }
+                }
+            },
             {
                 "type": "function",
                 "function": {
@@ -447,7 +522,12 @@ class ResearchAgent:
     
     def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool call"""
-        if tool_name == "search_web":
+        if tool_name == "decompose_query":
+            return self.decompose_query(
+                arguments['complex_query'],
+                arguments.get('num_searches', 5)
+            )
+        elif tool_name == "search_web":
             return self.search_web(arguments['query'])
         elif tool_name == "fetch_page_content":
             return self.fetch_page_content(arguments['url'])
@@ -569,12 +649,18 @@ class ResearchAgent:
                 {
                     "role": "system",
                     "content": """You are a helpful research assistant. When answering questions:
-1. Search for relevant information if needed
-2. Provide comprehensive answers based on the information found
-3. When citing sources, use numbered citations like [1], [2], etc. in your response text
-4. Do NOT create markdown links or include URLs in your response text
-5. Focus on synthesizing the information to answer the user's question thoroughly
-6. The numbered sources with clickable links will be provided separately at the bottom"""
+1. For complex queries involving multiple entities or topics (e.g., "Big 6 Canadian banks earnings", "compare top 5 tech companies"), use decompose_query FIRST to break it into specific searches
+2. Then search for relevant information using the decomposed queries for comprehensive coverage
+3. Provide comprehensive answers based on the information found
+4. When citing sources, use numbered citations like [1], [2], etc. in your response text
+5. Do NOT create markdown links or include URLs in your response text
+6. Focus on synthesizing the information to answer the user's question thoroughly
+7. The numbered sources with clickable links will be provided separately at the bottom
+
+Examples of when to use decompose_query:
+- "What are the revenues of major tech companies?" → Break into searches for Apple, Microsoft, Google, etc.
+- "Compare Canadian bank profits" → Break into searches for each major Canadian bank
+- "Latest climate change policies in G7 countries" → Break into searches for each G7 country"""
                 },
                 {"role": "user", "content": user_message}
             ]
