@@ -375,23 +375,20 @@ class ResearchAgent:
             }
     
     def decompose_query(self, complex_query: str, num_searches: int = 5) -> Dict[str, Any]:
-        """Break down a complex query into multiple specific searches"""
+        """Break down a complex query into multiple specific searches and execute them"""
         try:
             decomposition_prompt = f"""
 Break down this complex research query into {num_searches} specific, focused search queries that would help answer the original question comprehensively.
 
 Original query: "{complex_query}"
 
-For each search query, provide:
-1. A specific search term/phrase that would find relevant information
-2. A brief reason why this search is needed
-
-Return a JSON array of objects with "query" and "reason" fields.
+Return ONLY a JSON array of search query strings, nothing else.
 
 Example format:
 [
-  {{"query": "TD Bank Q3 2024 net income earnings", "reason": "Get specific financial data for TD Bank"}},
-  {{"query": "RBC Royal Bank quarterly earnings Q3 2024", "reason": "Get RBC's latest quarterly results"}}
+  "TD Bank Q4 2024 net income earnings",
+  "RBC Royal Bank quarterly earnings Q4 2024",
+  "Bank of Nova Scotia Scotiabank net income Q4 2024"
 ]
 """
             
@@ -408,11 +405,21 @@ Example format:
             import json
             try:
                 search_queries = json.loads(response.choices[0].message.content.strip())
+                
+                # Execute all the search queries
+                all_results = []
+                for query in search_queries:
+                    print(f"Executing decomposed search: {query}")
+                    search_result = self.search_web(query)
+                    if search_result.get('success'):
+                        all_results.extend(search_result.get('results', []))
+                
                 return {
                     'success': True,
                     'original_query': complex_query,
                     'search_queries': search_queries,
-                    'count': len(search_queries)
+                    'results': all_results,
+                    'count': len(all_results)
                 }
             except json.JSONDecodeError as e:
                 return {
@@ -649,8 +656,8 @@ Example format:
                 {
                     "role": "system",
                     "content": """You are a helpful research assistant. When answering questions:
-1. For complex queries involving multiple entities or topics (e.g., "Big 6 Canadian banks earnings", "compare top 5 tech companies"), use decompose_query FIRST to break it into specific searches
-2. Then search for relevant information using the decomposed queries for comprehensive coverage
+1. For complex queries involving multiple entities or topics (e.g., "Big 6 Canadian banks earnings", "compare top 5 tech companies"), use decompose_query to automatically break it into specific searches and get comprehensive results
+2. For simple queries, use search_web directly
 3. Provide comprehensive answers based on the information found
 4. When citing sources, use numbered citations like [1], [2], etc. in your response text
 5. Do NOT create markdown links or include URLs in your response text
@@ -658,9 +665,11 @@ Example format:
 7. The numbered sources with clickable links will be provided separately at the bottom
 
 Examples of when to use decompose_query:
-- "What are the revenues of major tech companies?" → Break into searches for Apple, Microsoft, Google, etc.
-- "Compare Canadian bank profits" → Break into searches for each major Canadian bank
-- "Latest climate change policies in G7 countries" → Break into searches for each G7 country"""
+- "What are the revenues of major tech companies?" → Automatically searches for Apple, Microsoft, Google, etc.
+- "Compare Canadian bank profits" → Automatically searches for each major Canadian bank
+- "Latest climate change policies in G7 countries" → Automatically searches for each G7 country
+
+decompose_query will automatically execute multiple targeted searches and return all results."""
                 },
                 {"role": "user", "content": user_message}
             ]
@@ -702,7 +711,14 @@ Examples of when to use decompose_query:
                     })
                     
                     # Collect sources from tool results
-                    if tool_name == "search_web" and result.get('success'):
+                    if tool_name == "decompose_query" and result.get('success'):
+                        for search_result in result.get('results', []):
+                            collected_sources.append({
+                                'url': search_result['url'],
+                                'title': search_result['title'],
+                                'type': 'decomposed_search'
+                            })
+                    elif tool_name == "search_web" and result.get('success'):
                         for search_result in result.get('results', []):
                             collected_sources.append({
                                 'url': search_result['url'],

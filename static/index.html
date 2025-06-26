@@ -350,7 +350,10 @@
                 let toolIcon = '🔧';
                 let toolText = '';
                 
-                if (data.tool === 'search_web') {
+                if (data.tool === 'decompose_query') {
+                    toolIcon = '🧩';
+                    toolText = `Breaking down query: "${data.arguments.complex_query}"`;
+                } else if (data.tool === 'search_web') {
                     toolIcon = '🔍';
                     toolText = `Searching: "${data.arguments.query}"`;
                 } else if (data.tool === 'fetch_page_content') {
