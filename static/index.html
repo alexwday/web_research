@@ -382,7 +382,10 @@
                 }
                 
                 streamingContent += data.content;
-                currentStreamingDiv.innerHTML = marked.parse(streamingContent) + '<span class="cursor"></span>';
+                // Temporarily replace citation markers with styled placeholders during streaming
+                let streamingHTML = marked.parse(streamingContent);
+                streamingHTML = streamingHTML.replace(/\[(\d+)\]/g, '<span class="citation-placeholder">[ $1 ]</span>');
+                currentStreamingDiv.innerHTML = streamingHTML + '<span class="cursor"></span>';
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 
             } else if (data.type === 'complete') {
@@ -391,8 +394,15 @@
                     currentStreamingDiv.classList.remove('streaming-message');
                     currentStreamingDiv.classList.add('assistant-message');
                     
-                    // Use the final response content without processing citations
+                    // Use the final response content and process citations to make them clickable
                     let htmlContent = marked.parse(data.data.response);
+                    if (data.data.sources && data.data.sources.length > 0) {
+                        data.data.sources.forEach((source, index) => {
+                            const citationNumber = index + 1;
+                            const regex = new RegExp(`\\[${citationNumber}\\]`, 'g');
+                            htmlContent = htmlContent.replace(regex, `<a href="#" class="citation" onclick="event.preventDefault(); window.open('${source.url}', '_blank');">[${citationNumber}]</a>`);
+                        });
+                    }
                     currentStreamingDiv.innerHTML = htmlContent;
                     
                     // Add sources section at the bottom if we have sources
