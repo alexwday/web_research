@@ -648,7 +648,7 @@ class ResearchAgent:
                 
                 full_response = ""
                 for chunk in stream:
-                    if chunk.choices[0].delta.content:
+                    if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
                         full_response += content
                         if status_callback:
@@ -674,7 +674,7 @@ class ResearchAgent:
                 
                 full_response = ""
                 for chunk in stream:
-                    if chunk.choices[0].delta.content:
+                    if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
                         full_response += content
                         if status_callback:
