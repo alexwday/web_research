@@ -389,6 +389,10 @@
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 
             } else if (data.type === 'complete') {
+                // Debug: Log the complete data structure
+                console.log('Complete data received:', data);
+                console.log('Sources array:', data.data.sources);
+                
                 // Finalize the streaming message
                 if (currentStreamingDiv) {
                     currentStreamingDiv.classList.remove('streaming-message');
@@ -400,7 +404,14 @@
                         data.data.sources.forEach((source, index) => {
                             const citationNumber = index + 1;
                             const regex = new RegExp(`\\[${citationNumber}\\]`, 'g');
-                            htmlContent = htmlContent.replace(regex, `<a href="#" class="citation" onclick="event.preventDefault(); window.open('${source.url}', '_blank');">[${citationNumber}]</a>`);
+                            
+                            // Only create clickable link if source has a valid URL
+                            if (source.url && source.url !== 'undefined' && source.url.startsWith('http')) {
+                                htmlContent = htmlContent.replace(regex, `<a href="#" class="citation" onclick="event.preventDefault(); window.open('${source.url}', '_blank');">[${citationNumber}]</a>`);
+                            } else {
+                                // Keep as plain text if no valid URL
+                                console.warn(`Source ${citationNumber} has invalid URL:`, source.url);
+                            }
                         });
                     }
                     currentStreamingDiv.innerHTML = htmlContent;
@@ -423,6 +434,12 @@
                         sourcesList.style.paddingLeft = '1.5rem';
                         
                         data.data.sources.forEach((source, index) => {
+                            // Only show sources with valid URLs
+                            if (!source.url || source.url === 'undefined' || !source.url.startsWith('http')) {
+                                console.warn(`Skipping source ${index + 1} with invalid URL:`, source);
+                                return;
+                            }
+                            
                             const listItem = document.createElement('li');
                             listItem.style.marginBottom = '0.5rem';
                             
