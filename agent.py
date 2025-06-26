@@ -554,66 +554,6 @@ class ResearchAgent:
             traceback.print_exc()
             raise
     
-    def _enhance_response_with_links(self, response_text: str, collected_sources: List[Dict]) -> str:
-        """Post-process response to add clickable links for source mentions"""
-        if not collected_sources:
-            return response_text
-        
-        enhanced_text = response_text
-        
-        # Create a mapping of source identifiers to URLs
-        source_map = {}
-        for source in collected_sources:
-            title = source.get('title', '')
-            url = source.get('url', '')
-            
-            if title and url:
-                # Extract domain name for matching
-                domain = urlparse(url).netloc.lower()
-                # Remove www. prefix for cleaner matching
-                if domain.startswith('www.'):
-                    domain = domain[4:]
-                
-                source_map[title.lower()] = {'url': url, 'title': title}
-                source_map[domain] = {'url': url, 'title': title}
-                
-                # Also add common site name variations
-                if 'techcrunch' in domain:
-                    source_map['techcrunch'] = {'url': url, 'title': title}
-                elif 'github' in domain:
-                    source_map['github'] = {'url': url, 'title': title}
-                elif 'stackoverflow' in domain:
-                    source_map['stack overflow'] = {'url': url, 'title': title}
-                elif 'reddit' in domain:
-                    source_map['reddit'] = {'url': url, 'title': title}
-        
-        # Find and replace source mentions with markdown links
-        # Sort identifiers by length (longest first) to avoid partial replacements
-        sorted_identifiers = sorted(source_map.items(), key=lambda x: len(x[0]), reverse=True)
-        
-        for identifier, source_info in sorted_identifiers:
-            # Skip if this text is already inside a markdown link
-            # Look for the identifier as a whole word (case insensitive)
-            pattern = r'\b' + re.escape(identifier) + r'\b'
-            
-            def replace_match(match):
-                # Check if this match is already inside a markdown link
-                start_pos = match.start()
-                text_before = enhanced_text[:start_pos]
-                
-                # Count unmatched brackets to see if we're inside a link
-                bracket_count = text_before.count('[') - text_before.count(']')
-                paren_count = text_before.count('(') - text_before.count(')')
-                
-                # If we're inside brackets or parentheses, don't replace
-                if bracket_count > 0 or paren_count > 0:
-                    return match.group(0)
-                
-                return f"[{source_info['title']}]({source_info['url']})"
-            
-            enhanced_text = re.sub(pattern, replace_match, enhanced_text, flags=re.IGNORECASE)
-        
-        return enhanced_text
     
     def clear_session(self):
         """Clear notes and sources for a new session"""
@@ -630,11 +570,11 @@ class ResearchAgent:
                     "role": "system",
                     "content": """You are a helpful research assistant. When answering questions:
 1. Search for relevant information if needed
-2. Provide comprehensive answers based on the information found  
-3. When referencing sources, mention them naturally by their title or website name (e.g., "According to TechCrunch" or "As reported by example.com")
+2. Provide comprehensive answers based on the information found
+3. When citing sources, use numbered citations like [1], [2], etc. in your response text
 4. Do NOT create markdown links or include URLs in your response text
 5. Focus on synthesizing the information to answer the user's question thoroughly
-6. Sources with clickable links will be provided separately at the bottom"""
+6. The numbered sources with clickable links will be provided separately at the bottom"""
                 },
                 {"role": "user", "content": user_message}
             ]
@@ -714,13 +654,10 @@ class ResearchAgent:
                         if status_callback:
                             await status_callback('stream_chunk', {'content': content})
                 
-                # Enhance response with clickable links
-                enhanced_response = self._enhance_response_with_links(full_response, collected_sources)
-                
                 # Send completion with collected sources
                 if status_callback:
                     await status_callback('complete', {
-                        'response': enhanced_response,
+                        'response': full_response,
                         'sources': collected_sources,
                         'tool_calls': tool_calls,
                         'notes': [note.to_dict() for note in self.notes]

@@ -416,6 +416,11 @@
                             const listItem = document.createElement('li');
                             listItem.style.marginBottom = '0.5rem';
                             
+                            const sourceNumber = document.createElement('span');
+                            sourceNumber.textContent = `[${index + 1}] `;
+                            sourceNumber.style.fontWeight = 'bold';
+                            sourceNumber.style.color = '#2c3e50';
+                            
                             const sourceLink = document.createElement('a');
                             sourceLink.href = '#';
                             sourceLink.textContent = source.title || source.url;
@@ -432,6 +437,7 @@
                                 sourceLink.style.textDecoration = 'none';
                             };
                             
+                            listItem.appendChild(sourceNumber);
                             listItem.appendChild(sourceLink);
                             sourcesList.appendChild(listItem);
                         });
