@@ -564,8 +564,10 @@ TOOL USAGE RULES:
    - Use decompose_query tool first
    - Let it break down the query into individual bank searches
    - It will automatically execute all searches and return comprehensive results
+   - The tool result contains ALL data needed - do NOT say you'll fill in information later
 
 4. After using tools, provide comprehensive answers with numbered citations [1], [2], etc.
+   - You have ALL the search results from decompose_query - use them immediately
 
 CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
@@ -715,8 +717,10 @@ TOOL USAGE RULES:
    - Use decompose_query tool first
    - Let it break down the query into individual bank searches
    - It will automatically execute all searches and return comprehensive results
+   - The tool result contains ALL data needed - do NOT say you'll fill in information later
 
 4. After using tools, provide comprehensive answers with numbered citations [1], [2], etc.
+   - You have ALL the search results from decompose_query - use them immediately
 
 CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
@@ -795,6 +799,7 @@ CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compar
                     
                     # Handle decompose_query results by executing individual searches
                     if tool_name == "decompose_query" and result.get('success') and result.get('execute_searches'):
+                        all_search_results = []
                         for query in result.get('search_queries', []):
                             # Show individual search progress
                             if status_callback:
@@ -806,12 +811,18 @@ CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compar
                             # Execute the search
                             search_result = self.search_web(query)
                             if search_result.get('success'):
+                                # Add to comprehensive results
                                 for search_item in search_result.get('results', []):
+                                    all_search_results.append(search_item)
                                     collected_sources.append({
                                         'url': search_item['url'],
                                         'title': search_item['title'],
                                         'type': 'decomposed_search'
                                     })
+                        
+                        # Update the tool result to include all search results
+                        result['all_search_results'] = all_search_results
+                        result['total_results'] = len(all_search_results)
                     elif tool_name == "search_web" and result.get('success'):
                         for search_result in result.get('results', []):
                             collected_sources.append({
