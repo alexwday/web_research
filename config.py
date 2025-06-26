@@ -20,7 +20,7 @@ MAX_TOKENS = 4096  # Maximum tokens for model responses
 
 # Server Configuration
 SERVER_HOST = '0.0.0.0'
-SERVER_PORT = 8000
+SERVER_PORT = 8040
 
 # WebSocket Configuration
 WS_RECONNECT_INTERVAL = 3000  # milliseconds

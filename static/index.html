@@ -300,7 +300,9 @@
         
         // Connect to WebSocket
         function connect() {
-            ws = new WebSocket('ws://localhost:8000/ws');
+            // Use the same port as the current page
+            const currentPort = window.location.port || '8040';
+            ws = new WebSocket(`ws://localhost:${currentPort}/ws`);
             
             ws.onopen = () => {
                 console.log('Connected to server');

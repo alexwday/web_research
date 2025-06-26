@@ -13,7 +13,7 @@ import sys
 
 # Try to import config
 try:
-    from config import OAUTH_CONFIG, SSL_CERT_PATH, MODEL_NAME
+    from config import OAUTH_CONFIG, SSL_CERT_PATH, MODEL_NAME, SERVER_HOST, SERVER_PORT
     
     print("Research Assistant Starting...")
     print("-" * 50)
@@ -52,7 +52,7 @@ if not os.path.exists('ssl_certs/rbc-ca-bundle.cer'):
     sys.exit(1)
 
 # Launch the app
-print("\nStarting server on http://localhost:8000")
+print(f"\nStarting server on http://localhost:{SERVER_PORT}")
 print("Press Ctrl+C to stop")
 print("-" * 50)
 
@@ -60,4 +60,4 @@ import uvicorn
 from app import app
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
