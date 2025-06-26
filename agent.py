@@ -5,7 +5,7 @@ from openai import OpenAI
 import requests
 from bs4 import BeautifulSoup
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import hashlib
 from config import MODEL_NAME, MAX_SEARCH_RESULTS, MAX_CONTENT_LENGTH, REQUEST_TIMEOUT, MAX_TOKENS
 import urllib3
@@ -170,28 +170,42 @@ class ResearchAgent:
                     # DuckDuckGo HTML returns URLs in a special format
                     href = link_elem['href']
                     
-                    # Check for the actual URL in the result__url span
-                    url_elem = result.find('span', class_='result__url')
-                    if url_elem:
-                        # Extract the actual URL from the span text
-                        url_text = url_elem.get_text(strip=True)
-                        # Clean up the URL
-                        if url_text.startswith('https://'):
-                            url = url_text
-                        elif url_text.startswith('http://'):
-                            url = url_text
+                    # DuckDuckGo uses /l/?uddg=URL format for external links
+                    if href.startswith('/l/'):
+                        # Parse the uddg parameter from the URL
+                        parsed = urlparse(href)
+                        params = parse_qs(parsed.query)
+                        if 'uddg' in params and params['uddg']:
+                            url = params['uddg'][0]
                         else:
-                            # If no protocol, assume https
-                            url = 'https://' + url_text
+                            # Try to extract from kh parameter if uddg not found
+                            if 'kh' in params and params['kh']:
+                                url = params['kh'][0]
+                            else:
+                                print(f"Could not extract URL from DuckDuckGo link: {href}")
+                                continue
                     else:
-                        # Fallback to href parsing
-                        url = href
-                        if url.startswith('//'):
-                            url = 'https:' + url
-                        elif url.startswith('/'):
-                            # This is likely a relative URL, skip it
-                            print(f"Skipping relative URL: {url}")
-                            continue
+                        # Check for the actual URL in the result__url span
+                        url_elem = result.find('span', class_='result__url')
+                        if url_elem:
+                            # Extract the actual URL from the span text
+                            url_text = url_elem.get_text(strip=True)
+                            # Clean up the URL
+                            if url_text.startswith('https://'):
+                                url = url_text
+                            elif url_text.startswith('http://'):
+                                url = url_text
+                            else:
+                                # If no protocol, assume https
+                                url = 'https://' + url_text
+                        else:
+                            # Fallback - skip relative URLs
+                            if href.startswith('/'):
+                                print(f"Skipping relative URL: {href}")
+                                continue
+                            url = href
+                            if url.startswith('//'):
+                                url = 'https:' + url
                     
                     title = link_elem.get_text(strip=True)
                     snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
