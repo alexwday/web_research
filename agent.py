@@ -588,15 +588,27 @@ class ResearchAgent:
                     source_map['reddit'] = {'url': url, 'title': title}
         
         # Find and replace source mentions with markdown links
-        # Look for domain names and site titles that match our sources
-        for identifier, source_info in source_map.items():
-            # Simple approach: replace any standalone mention of the domain or title
-            # This catches most cases where the LLM mentions sources naturally
-            
+        # Sort identifiers by length (longest first) to avoid partial replacements
+        sorted_identifiers = sorted(source_map.items(), key=lambda x: len(x[0]), reverse=True)
+        
+        for identifier, source_info in sorted_identifiers:
+            # Skip if this text is already inside a markdown link
             # Look for the identifier as a whole word (case insensitive)
             pattern = r'\b' + re.escape(identifier) + r'\b'
             
             def replace_match(match):
+                # Check if this match is already inside a markdown link
+                start_pos = match.start()
+                text_before = enhanced_text[:start_pos]
+                
+                # Count unmatched brackets to see if we're inside a link
+                bracket_count = text_before.count('[') - text_before.count(']')
+                paren_count = text_before.count('(') - text_before.count(')')
+                
+                # If we're inside brackets or parentheses, don't replace
+                if bracket_count > 0 or paren_count > 0:
+                    return match.group(0)
+                
                 return f"[{source_info['title']}]({source_info['url']})"
             
             enhanced_text = re.sub(pattern, replace_match, enhanced_text, flags=re.IGNORECASE)
