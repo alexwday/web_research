@@ -171,19 +171,27 @@ class ResearchAgent:
                     href = link_elem['href']
                     
                     # DuckDuckGo uses /l/?uddg=URL format for external links
-                    if href.startswith('/l/'):
+                    if '/l/?' in href and ('uddg=' in href or 'kh=' in href):
+                        # Handle both /l/ and //duckduckgo.com/l/ formats
+                        if href.startswith('//'):
+                            full_url = 'https:' + href
+                        elif href.startswith('/'):
+                            full_url = 'https://duckduckgo.com' + href
+                        else:
+                            full_url = href
+                        
                         # Parse the uddg parameter from the URL
-                        parsed = urlparse(href)
+                        parsed = urlparse(full_url)
                         params = parse_qs(parsed.query)
                         if 'uddg' in params and params['uddg']:
                             url = params['uddg'][0]
+                            print(f"Extracted URL from uddg: {url}")
+                        elif 'kh' in params and params['kh']:
+                            url = params['kh'][0]
+                            print(f"Extracted URL from kh: {url}")
                         else:
-                            # Try to extract from kh parameter if uddg not found
-                            if 'kh' in params and params['kh']:
-                                url = params['kh'][0]
-                            else:
-                                print(f"Could not extract URL from DuckDuckGo link: {href}")
-                                continue
+                            print(f"Could not extract URL from DuckDuckGo link: {href}")
+                            continue
                     else:
                         # Check for the actual URL in the result__url span
                         url_elem = result.find('span', class_='result__url')
