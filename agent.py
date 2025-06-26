@@ -466,10 +466,14 @@ Purpose: {search_purpose}
 Provide a comprehensive summary that:
 1. Extracts key information relevant to the search purpose
 2. Identifies specific data points, numbers, dates
-3. Notes any conflicting information or uncertainties
-4. Maintains source attribution for key facts
+3. IMPORTANT: When mentioning information, include the source by referencing the article title or website name
+   - Example: "According to Reuters' article 'TD Bank Posts Q2 Profits', the bank reported..."
+   - Example: "The Financial Post reports that TD's net income was..."
+   - Example: "BNN Bloomberg's coverage indicates..."
+4. Notes any conflicting information or uncertainties
+5. Groups related information from multiple sources
 
-Format your summary clearly and concisely while preserving important details.
+Format your summary with natural source attribution so readers know where each piece of information came from.
 """
             
             # Use the LLM to summarize
@@ -641,8 +645,9 @@ TOOL USAGE RULES:
 4. After using tools, provide comprehensive answers using the research summaries
    - decompose_query provides individual summaries for each search aspect
    - Use these summaries to synthesize your final response
-   - DO NOT create your own citations like [1], [2] - sources will be handled separately
-   - Focus on presenting the information clearly using the summaries
+   - The summaries already include natural source attribution (e.g., "According to Reuters...")
+   - Maintain this source attribution in your final response so users know where information came from
+   - DO NOT create numbered citations like [1], [2]
 
 CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
@@ -797,8 +802,9 @@ TOOL USAGE RULES:
 4. After using tools, provide comprehensive answers using the research summaries
    - decompose_query provides individual summaries for each search aspect
    - Use these summaries to synthesize your final response
-   - DO NOT create your own citations like [1], [2] - sources will be handled separately
-   - Focus on presenting the information clearly using the summaries
+   - The summaries already include natural source attribution (e.g., "According to Reuters...")
+   - Maintain this source attribution in your final response so users know where information came from
+   - DO NOT create numbered citations like [1], [2]
 
 CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
