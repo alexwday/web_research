@@ -374,7 +374,7 @@ class ResearchAgent:
                 'error': str(e)
             }
     
-    def decompose_query(self, complex_query: str, num_searches: int = 5) -> Dict[str, Any]:
+    def decompose_query(self, complex_query: str, num_searches: int = 5, status_callback=None) -> Dict[str, Any]:
         """Break down a complex query into multiple specific searches and execute them"""
         try:
             decomposition_prompt = f"""
@@ -406,20 +406,11 @@ Example format:
             try:
                 search_queries = json.loads(response.choices[0].message.content.strip())
                 
-                # Execute all the search queries
-                all_results = []
-                for query in search_queries:
-                    print(f"Executing decomposed search: {query}")
-                    search_result = self.search_web(query)
-                    if search_result.get('success'):
-                        all_results.extend(search_result.get('results', []))
-                
                 return {
                     'success': True,
                     'original_query': complex_query,
                     'search_queries': search_queries,
-                    'results': all_results,
-                    'count': len(all_results)
+                    'execute_searches': True  # Flag to indicate searches should be executed by main loop
                 }
             except json.JSONDecodeError as e:
                 return {
@@ -452,17 +443,17 @@ Example format:
                 "type": "function",
                 "function": {
                     "name": "decompose_query",
-                    "description": "Break down a complex research question into multiple specific searches for comprehensive coverage",
+                    "description": "REQUIRED for queries about multiple entities: Break down complex queries involving multiple companies, banks, countries, etc. into comprehensive targeted searches. Use this for queries like 'Big 6 Canadian banks', 'Top 5 tech companies', 'Major banks earnings', etc. This tool automatically executes multiple searches and returns comprehensive results.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "complex_query": {
                                 "type": "string",
-                                "description": "The complex query to break down into multiple searches"
+                                "description": "The complex query involving multiple entities to break down into specific searches"
                             },
                             "num_searches": {
                                 "type": "integer",
-                                "description": "Number of specific searches to create (default: 5)",
+                                "description": "Number of specific searches to create (default: 6 for Big 6 banks, 5 for top 5 companies, etc.)",
                                 "default": 5
                             }
                         },
@@ -527,12 +518,13 @@ Example format:
             }
         ]
     
-    def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_tool(self, tool_name: str, arguments: Dict[str, Any], status_callback=None) -> Dict[str, Any]:
         """Execute a tool call"""
         if tool_name == "decompose_query":
             return self.decompose_query(
                 arguments['complex_query'],
-                arguments.get('num_searches', 5)
+                arguments.get('num_searches', 5),
+                status_callback
             )
         elif tool_name == "search_web":
             return self.search_web(arguments['query'])
@@ -554,24 +546,74 @@ Example format:
             messages = [
                 {
                     "role": "system",
-                    "content": """You are a helpful research assistant. When answering questions:
-1. Search for relevant information if needed
-2. Take notes on important findings with source URLs
-3. Provide comprehensive answers with citations
-4. Format citations as [1], [2], etc. in your response
-5. Always cite your sources when using web information"""
+                    "content": """You are a helpful research assistant. IMPORTANT: You MUST use the decompose_query tool for any query involving multiple entities.
+
+TOOL USAGE RULES:
+1. ALWAYS use decompose_query for queries about multiple entities:
+   - "Big 6 Canadian banks" → USE decompose_query
+   - "Top 5 tech companies" → USE decompose_query  
+   - "Major Canadian banks net income" → USE decompose_query
+   - "Compare bank profits" → USE decompose_query
+   - Any query with numbers like "Big 6", "Top 5", "Major", etc. → USE decompose_query
+
+2. Use search_web only for single entity queries:
+   - "Apple's revenue" → USE search_web
+   - "Tesla stock price" → USE search_web
+
+3. When you see queries like "Big 6 Canadian banks net income", you MUST:
+   - Use decompose_query tool first
+   - Let it break down the query into individual bank searches
+   - It will automatically execute all searches and return comprehensive results
+
+4. After using tools, provide comprehensive answers with numbered citations [1], [2], etc.
+
+CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
                 {"role": "user", "content": user_message}
             ]
             
             # Create completion with tools
-            print(f"Calling {MODEL_NAME} with tools...")
-            response = self.client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                tools=self.get_tools(),
-                max_tokens=MAX_TOKENS
-            )
+            tools = self.get_tools()
+            print(f"Calling {MODEL_NAME} with {len(tools)} tools...")
+            print(f"DEBUG: Tools being passed to LLM:")
+            for tool in tools:
+                print(f"  - {tool['function']['name']}: {tool['function']['description']}")
+            print(f"DEBUG: User message: '{user_message}'")
+            
+            # Detect if query should use decompose_query and force it
+            should_force_decompose = any(trigger in user_message.lower() for trigger in [
+                'big 6', 'top 5', 'top 10', 'major banks', 'major companies', 
+                'compare', 'banks net income', 'companies revenue', 'g7 countries'
+            ])
+            
+            if should_force_decompose:
+                print(f"DEBUG: Forcing decompose_query tool for query: '{user_message}'")
+                response = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice={"type": "function", "function": {"name": "decompose_query"}},
+                    max_tokens=MAX_TOKENS,
+                    temperature=0.1
+                )
+            else:
+                print(f"DEBUG: Using normal tool selection for query: '{user_message}'")
+                response = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=MAX_TOKENS,
+                    temperature=0.1  # Low temperature for better tool selection consistency
+                )
+            
+            print(f"DEBUG: LLM response received")
+            print(f"DEBUG: Message content: {response.choices[0].message.content}")
+            print(f"DEBUG: Tool calls: {response.choices[0].message.tool_calls}")
+            if response.choices[0].message.tool_calls:
+                for tc in response.choices[0].message.tool_calls:
+                    print(f"  Tool call: {tc.function.name} with args: {tc.function.arguments}")
+            else:
+                print("  No tool calls made by LLM")
             print("Initial completion successful")
             
             # Process tool calls
@@ -589,7 +631,7 @@ Example format:
                         })
                     
                     # Execute tool
-                    result = self.execute_tool(tool_name, arguments)
+                    result = self.execute_tool(tool_name, arguments, status_callback)
                     tool_calls.append({
                         'tool': tool_name,
                         'arguments': arguments,
@@ -655,33 +697,74 @@ Example format:
             messages = [
                 {
                     "role": "system",
-                    "content": """You are a helpful research assistant. When answering questions:
-1. For complex queries involving multiple entities or topics (e.g., "Big 6 Canadian banks earnings", "compare top 5 tech companies"), use decompose_query to automatically break it into specific searches and get comprehensive results
-2. For simple queries, use search_web directly
-3. Provide comprehensive answers based on the information found
-4. When citing sources, use numbered citations like [1], [2], etc. in your response text
-5. Do NOT create markdown links or include URLs in your response text
-6. Focus on synthesizing the information to answer the user's question thoroughly
-7. The numbered sources with clickable links will be provided separately at the bottom
+                    "content": """You are a helpful research assistant. IMPORTANT: You MUST use the decompose_query tool for any query involving multiple entities.
 
-Examples of when to use decompose_query:
-- "What are the revenues of major tech companies?" → Automatically searches for Apple, Microsoft, Google, etc.
-- "Compare Canadian bank profits" → Automatically searches for each major Canadian bank
-- "Latest climate change policies in G7 countries" → Automatically searches for each G7 country
+TOOL USAGE RULES:
+1. ALWAYS use decompose_query for queries about multiple entities:
+   - "Big 6 Canadian banks" → USE decompose_query
+   - "Top 5 tech companies" → USE decompose_query  
+   - "Major Canadian banks net income" → USE decompose_query
+   - "Compare bank profits" → USE decompose_query
+   - Any query with numbers like "Big 6", "Top 5", "Major", etc. → USE decompose_query
 
-decompose_query will automatically execute multiple targeted searches and return all results."""
+2. Use search_web only for single entity queries:
+   - "Apple's revenue" → USE search_web
+   - "Tesla stock price" → USE search_web
+
+3. When you see queries like "Big 6 Canadian banks net income", you MUST:
+   - Use decompose_query tool first
+   - Let it break down the query into individual bank searches
+   - It will automatically execute all searches and return comprehensive results
+
+4. After using tools, provide comprehensive answers with numbered citations [1], [2], etc.
+
+CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
                 {"role": "user", "content": user_message}
             ]
             
             # First call with tools to gather information
-            print(f"Calling {MODEL_NAME} with tools...")
-            response = self.client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                tools=self.get_tools(),
-                max_tokens=MAX_TOKENS
-            )
+            tools = self.get_tools()
+            print(f"Calling {MODEL_NAME} with {len(tools)} tools...")
+            print(f"DEBUG: Tools being passed to LLM:")
+            for tool in tools:
+                print(f"  - {tool['function']['name']}: {tool['function']['description']}")
+            print(f"DEBUG: User message: '{user_message}'")
+            
+            # Detect if query should use decompose_query and force it
+            should_force_decompose = any(trigger in user_message.lower() for trigger in [
+                'big 6', 'top 5', 'top 10', 'major banks', 'major companies', 
+                'compare', 'banks net income', 'companies revenue', 'g7 countries'
+            ])
+            
+            if should_force_decompose:
+                print(f"DEBUG: Forcing decompose_query tool for query: '{user_message}'")
+                response = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice={"type": "function", "function": {"name": "decompose_query"}},
+                    max_tokens=MAX_TOKENS,
+                    temperature=0.1
+                )
+            else:
+                print(f"DEBUG: Using normal tool selection for query: '{user_message}'")
+                response = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=MAX_TOKENS,
+                    temperature=0.1  # Low temperature for better tool selection consistency
+                )
+            
+            print(f"DEBUG: LLM response received")
+            print(f"DEBUG: Message content: {response.choices[0].message.content}")
+            print(f"DEBUG: Tool calls: {response.choices[0].message.tool_calls}")
+            if response.choices[0].message.tool_calls:
+                for tc in response.choices[0].message.tool_calls:
+                    print(f"  Tool call: {tc.function.name} with args: {tc.function.arguments}")
+            else:
+                print("  No tool calls made by LLM")
             
             # Process tool calls and collect sources
             tool_calls = []
@@ -703,21 +786,32 @@ decompose_query will automatically execute multiple targeted searches and return
                         })
                     
                     # Execute tool
-                    result = self.execute_tool(tool_name, arguments)
+                    result = self.execute_tool(tool_name, arguments, status_callback)
                     tool_calls.append({
                         'tool': tool_name,
                         'arguments': arguments,
                         'result': result
                     })
                     
-                    # Collect sources from tool results
-                    if tool_name == "decompose_query" and result.get('success'):
-                        for search_result in result.get('results', []):
-                            collected_sources.append({
-                                'url': search_result['url'],
-                                'title': search_result['title'],
-                                'type': 'decomposed_search'
-                            })
+                    # Handle decompose_query results by executing individual searches
+                    if tool_name == "decompose_query" and result.get('success') and result.get('execute_searches'):
+                        for query in result.get('search_queries', []):
+                            # Show individual search progress
+                            if status_callback:
+                                await status_callback('tool_use', {
+                                    'tool': 'search_web',
+                                    'arguments': {'query': query}
+                                })
+                            
+                            # Execute the search
+                            search_result = self.search_web(query)
+                            if search_result.get('success'):
+                                for search_item in search_result.get('results', []):
+                                    collected_sources.append({
+                                        'url': search_item['url'],
+                                        'title': search_item['title'],
+                                        'type': 'decomposed_search'
+                                    })
                     elif tool_name == "search_web" and result.get('success'):
                         for search_result in result.get('results', []):
                             collected_sources.append({
