@@ -378,17 +378,33 @@ class ResearchAgent:
         """Break down a complex query into multiple specific searches and execute them"""
         try:
             decomposition_prompt = f"""
-Break down this complex research query into {num_searches} specific, focused search queries that would help answer the original question comprehensively.
+Break down this research query into diverse, focused searches that comprehensively address different aspects of the question.
 
 Original query: "{complex_query}"
 
-Return ONLY a JSON array of search query strings, nothing else.
+Create searches for different information types:
+- Financial/earnings data
+- Recent news and developments  
+- Market analysis or industry context
+- Regulatory or legal updates (if relevant)
 
-Example format:
+Return ONLY a JSON array of objects with "query" and "purpose" fields.
+
+Example for "TD Bank Q2 net income and recent news":
 [
-  "TD Bank Q4 2024 net income earnings",
-  "RBC Royal Bank quarterly earnings Q4 2024",
-  "Bank of Nova Scotia Scotiabank net income Q4 2024"
+  {{"query": "TD Bank Q2 2024 quarterly earnings net income financial results", "purpose": "financial_data"}},
+  {{"query": "TD Bank recent news developments Q2 2024 affecting income", "purpose": "recent_news"}},
+  {{"query": "TD Bank Q2 2024 market analysis performance", "purpose": "market_analysis"}}
+]
+
+Example for "Big 6 Canadian banks net income":
+[
+  {{"query": "TD Bank quarterly earnings net income Q4 2024", "purpose": "financial_data"}},
+  {{"query": "RBC Royal Bank quarterly earnings net income Q4 2024", "purpose": "financial_data"}},
+  {{"query": "Bank of Nova Scotia Scotiabank quarterly earnings Q4 2024", "purpose": "financial_data"}},
+  {{"query": "BMO Bank of Montreal quarterly earnings Q4 2024", "purpose": "financial_data"}},
+  {{"query": "CIBC Canadian Imperial Bank quarterly earnings Q4 2024", "purpose": "financial_data"}},
+  {{"query": "National Bank of Canada quarterly earnings Q4 2024", "purpose": "financial_data"}}
 ]
 """
             
@@ -404,12 +420,12 @@ Example format:
             # Parse the JSON response
             import json
             try:
-                search_queries = json.loads(response.choices[0].message.content.strip())
+                search_items = json.loads(response.choices[0].message.content.strip())
                 
                 return {
                     'success': True,
                     'original_query': complex_query,
-                    'search_queries': search_queries,
+                    'search_items': search_items,
                     'execute_searches': True  # Flag to indicate searches should be executed by main loop
                 }
             except json.JSONDecodeError as e:
@@ -423,6 +439,62 @@ Example format:
             return {
                 'success': False,
                 'error': f"Query decomposition failed: {str(e)}"
+            }
+    
+    def summarize_search_results(self, search_query: str, search_purpose: str, search_results: List[Dict]) -> Dict[str, Any]:
+        """Summarize search results for a specific query and purpose"""
+        try:
+            if not search_results:
+                return {
+                    'success': False,
+                    'error': 'No search results to summarize'
+                }
+            
+            # Prepare content for summarization
+            content_text = f"Search Query: {search_query}\nPurpose: {search_purpose}\n\nResults:\n"
+            for i, result in enumerate(search_results[:5]):  # Limit to top 5 results
+                content_text += f"\n{i+1}. {result.get('title', 'No title')}\n"
+                content_text += f"   {result.get('snippet', 'No snippet')}\n"
+                content_text += f"   URL: {result.get('url', 'No URL')}\n"
+            
+            summarization_prompt = f"""
+Analyze and summarize these search results for the query: "{search_query}"
+Purpose: {search_purpose}
+
+{content_text}
+
+Provide a comprehensive summary that:
+1. Extracts key information relevant to the search purpose
+2. Identifies specific data points, numbers, dates
+3. Notes any conflicting information or uncertainties
+4. Maintains source attribution for key facts
+
+Format your summary clearly and concisely while preserving important details.
+"""
+            
+            # Use the LLM to summarize
+            messages = [{"role": "user", "content": summarization_prompt}]
+            response = self.client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                max_tokens=800,
+                temperature=0.2
+            )
+            
+            summary = response.choices[0].message.content.strip()
+            
+            return {
+                'success': True,
+                'search_query': search_query,
+                'search_purpose': search_purpose,
+                'summary': summary,
+                'source_count': len(search_results)
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Summarization failed: {str(e)}"
             }
     
     def take_note(self, content: str, source_url: Optional[str] = None) -> Dict[str, Any]:
@@ -566,8 +638,11 @@ TOOL USAGE RULES:
    - It will automatically execute all searches and return comprehensive results
    - The tool result contains ALL data needed - do NOT say you'll fill in information later
 
-4. After using tools, provide comprehensive answers with numbered citations [1], [2], etc.
-   - You have ALL the search results from decompose_query - use them immediately
+4. After using tools, provide comprehensive answers using the research summaries
+   - decompose_query provides individual summaries for each search aspect
+   - Use these summaries to synthesize your final response
+   - DO NOT create your own citations like [1], [2] - sources will be handled separately
+   - Focus on presenting the information clearly using the summaries
 
 CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
@@ -719,8 +794,11 @@ TOOL USAGE RULES:
    - It will automatically execute all searches and return comprehensive results
    - The tool result contains ALL data needed - do NOT say you'll fill in information later
 
-4. After using tools, provide comprehensive answers with numbered citations [1], [2], etc.
-   - You have ALL the search results from decompose_query - use them immediately
+4. After using tools, provide comprehensive answers using the research summaries
+   - decompose_query provides individual summaries for each search aspect
+   - Use these summaries to synthesize your final response
+   - DO NOT create your own citations like [1], [2] - sources will be handled separately
+   - Focus on presenting the information clearly using the summaries
 
 CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compare", you MUST use decompose_query, not search_web."""
                 },
@@ -797,32 +875,47 @@ CRITICAL: If you see words like "Big 6", "major banks", "top companies", "compar
                         'result': result
                     })
                     
-                    # Handle decompose_query results by executing individual searches
+                    # Handle decompose_query results by executing individual searches with summarization
                     if tool_name == "decompose_query" and result.get('success') and result.get('execute_searches'):
+                        search_summaries = []
                         all_search_results = []
-                        for query in result.get('search_queries', []):
+                        
+                        for search_item in result.get('search_items', []):
+                            query = search_item.get('query', '')
+                            purpose = search_item.get('purpose', 'research')
+                            
                             # Show individual search progress
                             if status_callback:
                                 await status_callback('tool_use', {
                                     'tool': 'search_web',
-                                    'arguments': {'query': query}
+                                    'arguments': {'query': f"{query} ({purpose})"}
                                 })
                             
                             # Execute the search
                             search_result = self.search_web(query)
                             if search_result.get('success'):
-                                # Add to comprehensive results
-                                for search_item in search_result.get('results', []):
-                                    all_search_results.append(search_item)
+                                search_results = search_result.get('results', [])
+                                
+                                # Collect sources
+                                for search_item_result in search_results:
+                                    all_search_results.append(search_item_result)
                                     collected_sources.append({
-                                        'url': search_item['url'],
-                                        'title': search_item['title'],
-                                        'type': 'decomposed_search'
+                                        'url': search_item_result['url'],
+                                        'title': search_item_result['title'],
+                                        'type': f'decomposed_search_{purpose}'
                                     })
+                                
+                                # Summarize the search results
+                                print(f"Summarizing results for: {query}")
+                                summary_result = self.summarize_search_results(query, purpose, search_results)
+                                if summary_result.get('success'):
+                                    search_summaries.append(summary_result)
                         
-                        # Update the tool result to include all search results
+                        # Update the tool result to include summaries and all search results
+                        result['search_summaries'] = search_summaries
                         result['all_search_results'] = all_search_results
                         result['total_results'] = len(all_search_results)
+                        result['total_summaries'] = len(search_summaries)
                     elif tool_name == "search_web" and result.get('success'):
                         for search_result in result.get('results', []):
                             collected_sources.append({
